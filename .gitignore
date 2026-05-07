@@ -1,0 +1,17 @@
+.env
+.env.local
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+.uv/
+*.egg-info/
+build/
+dist/
+logs/*.log
+data/raw/
+data/cache/
+data/*.db
+data/*.parquet
+data/*.duckdb
+.DS_Store
