@@ -1,0 +1,111 @@
+# PromptSensitivityFI — versioned config. See Research_Design_v3 §7 / §9.
+# Bump `config_version` whenever a value changes; experiments are keyed on it.
+config_version: 1
+random_seed: 42
+
+# §2.4 — sample sizes per dataset.
+sampling:
+  hotpotqa:
+    n_questions: 100
+    stratify_by: level          # {medium, hard}
+    split: validation
+    hf_dataset: "hotpotqa/hotpot_qa"
+    hf_config: "distractor"
+  twiki:
+    n_questions: 50
+    stratify_by: type           # {comparison, inference, compositional, bridge_comparison}
+    split: validation
+    hf_dataset: "framolfese/2WikiMultihopQA"
+    hf_config: null
+
+# §4 — three-ladder construction.
+ladders:
+  levels: [0, 2, 4, 6, 8, 10]    # number of paragraphs in prompt at each level
+  k_gold: 2                       # all questions in HotpotQA / 2WikiMultihopQA have 2 gold paragraphs
+  n_total_paragraphs: 10
+  variants: [random, gold_first, distractor_first]
+
+# §3.1 — paraphrase universe per question.
+paraphrases:
+  n_per_question: 30
+  generator_model: "gpt-4o-2024-08-06"
+  generator_temperature: 0.8
+  templates: [neutral, journalist, casual_user, domain_expert]
+  raw_candidates_per_question: 40
+  max_regeneration_attempts: 50
+  nli:
+    model: "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
+    bidirectional_threshold: 0.9
+    fallback_threshold: 0.85       # used after regen attempts also fail
+  constraint_filter:
+    judge_model: "gpt-4o-2024-08-06"
+    jaccard_threshold: 0.9
+  deduplication:
+    min_edit_distance: 6           # >5 means >=6
+
+# §5 — model list. The four-model headline. Keep IDs human-readable here; per-provider
+# resolution happens in prompt_sensitivity/models/registry.py.
+models:
+  llama_3_1_8b:
+    provider: together
+    model_id: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"
+    has_logits: true
+    has_hidden: true               # only when run locally via vLLM/HF; False through Together
+  mistral_7b_v03:
+    provider: together
+    model_id: "mistralai/Mistral-7B-Instruct-v0.3"
+    has_logits: true
+    has_hidden: true
+  qwen_2_5_7b:
+    provider: together
+    model_id: "Qwen/Qwen2.5-7B-Instruct-Turbo"
+    has_logits: true
+    has_hidden: true
+  gpt_4o:
+    provider: openai
+    model_id: "gpt-4o-2024-08-06"
+    has_logits: false              # only top-20 logprobs through API; treat as black-box
+    has_hidden: false              # use text-embedding-3-large as proxy
+
+# §6 — F(x) scoring.
+scoring:
+  method: "nli_with_gold"           # NEVER exact_match (Hua 2025 EMNLP arXiv:2509.01790)
+  nli_model: "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
+  entail_threshold: 0.7
+  contradict_threshold: 0.5         # answer rejected if contradiction prob >= this
+  exact_match_appendix_only: true
+
+# §3 — H_sem clustering (Farquhar 2024 Nature).
+h_sem:
+  n_samples_per_prompt: 10
+  sampling_temperature: 1.0
+  cluster_nli_model: "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
+  cluster_threshold: 0.5            # bidirectional entailment for cluster merge
+
+# §7.6.3 — bootstrap CIs.
+bootstrap:
+  n_iterations: 1000
+  confidence: 0.95
+
+# Embedding encoders.
+embedding:
+  external_encoder: "sentence-transformers/all-mpnet-base-v2"
+  openai_encoder: "text-embedding-3-large"
+
+# API access — rate limit + retry budget.
+api:
+  max_retries: 6
+  initial_backoff_s: 1.0
+  max_backoff_s: 60.0
+  rate_limit_qps:
+    together: 20.0
+    openai: 5.0
+
+# Cache — hash-based; never re-call same (prompt, model, sampling-params).
+cache:
+  backend: sqlite
+  path: "data/cache/llm_cache.sqlite"
+
+# Spend guard.
+spend:
+  pilot_usd_cap: 150.0
