@@ -28,58 +28,84 @@ ladders:
 # §3.1 — paraphrase universe per question.
 paraphrases:
   n_per_question: 30
-  generator_model: gpt_4o           # key into `models` below
+  generator_model: gpt_4o           # key into `models` below; substituted to kit.gpt-4.1
   generator_temperature: 0.8
   templates: [neutral, journalist, casual_user, domain_expert]
   raw_candidates_per_question: 40
+  samples_per_template: 10          # 4 templates × 10 = 40 raw candidates
   max_regeneration_attempts: 50
   nli:
     model: "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
     bidirectional_threshold: 0.9
     fallback_threshold: 0.85
   constraint_filter:
-    judge_model: gpt_4o             # key into `models` below
+    judge_model: gpt_4o             # key into `models` below; substituted to kit.gpt-4.1
     jaccard_threshold: 0.9
   deduplication:
     min_edit_distance: 6
 
 # §5 — models reached through the KIT/DSI LiteLLM gateway.
 #
-# ALL traffic goes through one OpenAI-compatible endpoint
-# (https://ai-gateway.dsi-experimente.de/v1) with one API key.
-# `provider: litellm` is the only provider until cluster access lands (Sprint 6).
+# IMPORTANT — model substitutions vs. design doc (logged 2026-05-12 after
+# `make list-models` confirmed the gateway's catalogue is 20 specific models
+# and DOES NOT include Mistral-7B, Qwen2.5-7B, or GPT-4o):
 #
-# Capability flags reflect what the gateway exposes per model. Per §5.3 of the
-# design doc + 2026-05-12 supervisor exchange:
+#   Design doc                    Gateway substitute                    Notes
+#   -----------------------------  -----------------------------------  ----------------------------
+#   Llama-3.1-8B-Instruct           meta-llama-3.1-8b-instruct           exact match
+#   Mistral-7B-Instruct-v0.3        teuken-7b-instruct-research          OpenGPT-X 7B; only ~7B instruct
+#                                                                        non-Llama instruct available
+#   Qwen2.5-7B-Instruct             qwen3-30b-a3b-instruct-2507          MoE ~3B active per token;
+#                                                                        nearest "7B-class" Qwen on gw
+#   GPT-4o                          kit.gpt-4.1                          closest non-reasoning OpenAI
+#                                                                        flagship; gpt-5/5.1 skipped
+#                                                                        (anti-pattern: no reasoning
+#                                                                        models in primary run)
+#
+# Capability flags reflect what the gateway exposes per model. Per §5.3 of
+# Research_Design_v3 + the 2026-05-12 supervisor exchange:
 #   - chat_logprobs:    /v1/chat/completions supports `logprobs=true, top_logprobs<=20`
 #   - echo_completions: /v1/completions supports `echo=true, logprobs=N, max_tokens=0`
 #                       (the only path to POSIX's forced sequence scoring pre-cluster).
 #   - has_hidden:       false everywhere via the gateway. Cluster-only.
-# The `model_id` strings below are LiteLLM-canonical names; the actual aliases
-# exposed by THIS gateway must be confirmed with `make list-models` and
-# overridden here if different.
+#
+# The chat_logprobs / echo_completions flags are optimistic defaults; `make
+# api-check` confirms per-model. If api-check reports lp=no for a model, flip
+# its chat_logprobs to false and downstream code (Errica / POSIX) will fall
+# back to Monte-Carlo over semantic clusters.
 models:
   llama_3_1_8b:
     provider: litellm
-    model_id: "together_ai/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"
+    model_id: "meta-llama-3.1-8b-instruct"
     chat_logprobs: true
-    echo_completions: true        # Together backend supports /v1/completions echo
+    echo_completions: true
     has_hidden: false
   mistral_7b_v03:
+    # SUBSTITUTE: Mistral-7B not on gateway. Teuken-7B (OpenGPT-X) is the
+    # only ~7B-class non-Llama instruct model offered. Different tokeniser
+    # and architecture (Llama-arch w/ German-heavy training), so it still
+    # serves the "architecture contrast" intent of §5.1.
     provider: litellm
-    model_id: "together_ai/mistralai/Mistral-7B-Instruct-v0.3"
+    model_id: "teuken-7b-instruct-research"
     chat_logprobs: true
     echo_completions: true
     has_hidden: false
   qwen_2_5_7b:
+    # SUBSTITUTE: Qwen2.5-7B not on gateway. qwen3-30b-a3b-instruct-2507 is
+    # a MoE with ~3B active params per token (despite the 30B name) so
+    # inference compute is comparable to a dense 7B model. Newer Qwen
+    # generation (3 -> 2.5) — flag this in the writeup.
     provider: litellm
-    model_id: "together_ai/Qwen/Qwen2.5-7B-Instruct-Turbo"
+    model_id: "qwen3-30b-a3b-instruct-2507"
     chat_logprobs: true
     echo_completions: true
     has_hidden: false
   gpt_4o:
+    # SUBSTITUTE: GPT-4o not on gateway. kit.gpt-4.1 is the closest non-
+    # reasoning OpenAI flagship. The kit.gpt-5* family is explicitly skipped
+    # per the design-doc anti-pattern "No reasoning models in the primary run".
     provider: litellm
-    model_id: "gpt-4o-2024-08-06"
+    model_id: "kit.gpt-4.1"
     chat_logprobs: true           # OpenAI gives top_logprobs<=20 on chat-completions
     echo_completions: false       # OpenAI removed echo from modern chat models -> POSIX null
     has_hidden: false
