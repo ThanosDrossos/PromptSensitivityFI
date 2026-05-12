@@ -8,6 +8,7 @@ param(
     [ValidateSet(
         "install", "test", "lint",
         "api-check", "list-models", "data-download", "sample",
+        "paraphrases", "paraphrases-smoke", "export-annotation", "compute-kappa",
         "sprint1-no-api", "sprint1-verify",
         "clean"
     )]
@@ -37,6 +38,16 @@ switch ($Target) {
     "list-models"  { Run-Module "prompt_sensitivity.scripts.list_models" }
     "data-download"{ Run-Module "prompt_sensitivity.scripts.download_datasets" }
     "sample"       { Run-Module "prompt_sensitivity.scripts.sample_questions" }
+    "paraphrases" {
+        uv run python -m prompt_sensitivity.scripts.generate_paraphrases --resume
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
+    "paraphrases-smoke" {
+        uv run python -m prompt_sensitivity.scripts.generate_paraphrases --limit 3 --out data/paraphrases_smoke.parquet
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
+    "export-annotation"{ Run-Module "prompt_sensitivity.scripts.export_annotation_sample" }
+    "compute-kappa"    { Run-Module "prompt_sensitivity.scripts.compute_kappa" }
     "sprint1-no-api" {
         Run-UvSync; Run-Pytest
         Run-Module "prompt_sensitivity.scripts.download_datasets"

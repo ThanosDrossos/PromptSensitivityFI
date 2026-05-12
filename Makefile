@@ -1,7 +1,8 @@
 # PromptSensitivityFI — Makefile. Sprint-by-sprint entry points.
 # Use `uv` for everything; each `make` target maps to one Sprint-level deliverable.
 
-.PHONY: install test lint sample sprint1-verify list-models clean
+.PHONY: install test lint sample sprint1-verify list-models clean \
+        paraphrases paraphrases-smoke export-annotation compute-kappa
 
 install:
 	uv sync --all-extras
@@ -31,6 +32,27 @@ data-download:
 # 1.4 — stratified sample of 100 HotpotQA + 50 2Wiki questions, write data/sample_v1.json.
 sample:
 	uv run python -m prompt_sensitivity.scripts.sample_questions
+
+# --- Sprint 2 entry points ---
+
+# 2.1-2.3 — full paraphrase pipeline on all 150 sampled questions.
+#   Writes data/paraphrases_v1.parquet (accepted + rejected rows).
+paraphrases:
+	uv run python -m prompt_sensitivity.scripts.generate_paraphrases --resume
+
+# Smoke test: first 3 questions only, useful to verify the gateway path
+# before committing to a full ~$5 generator spend.
+paraphrases-smoke:
+	uv run python -m prompt_sensitivity.scripts.generate_paraphrases --limit 3 --out data/paraphrases_smoke.parquet
+
+# 2.4a — pick 20 questions × 30 paraphrases, write CSV for Thanos + Diener
+#        to fill in `thanos` / `diener` columns (yes/no per paraphrase).
+export-annotation:
+	uv run python -m prompt_sensitivity.scripts.export_annotation_sample
+
+# 2.4b — Cohen's κ. Gate passes iff κ >= 0.8.
+compute-kappa:
+	uv run python -m prompt_sensitivity.scripts.compute_kappa
 
 # Convenience target: run all Sprint-1 deliverables that don't need API keys.
 sprint1-no-api: install test data-download sample
