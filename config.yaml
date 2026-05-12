@@ -1,6 +1,6 @@
 # PromptSensitivityFI — versioned config. See Research_Design_v3 §7 / §9.
 # Bump `config_version` whenever a value changes; experiments are keyed on it.
-config_version: 1
+config_version: 2
 random_seed: 42
 
 # §2.4 — sample sizes per dataset.
@@ -28,7 +28,7 @@ ladders:
 # §3.1 — paraphrase universe per question.
 paraphrases:
   n_per_question: 30
-  generator_model: "gpt-4o-2024-08-06"
+  generator_model: gpt_4o           # key into `models` below
   generator_temperature: 0.8
   templates: [neutral, journalist, casual_user, domain_expert]
   raw_candidates_per_question: 40
@@ -36,43 +36,60 @@ paraphrases:
   nli:
     model: "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
     bidirectional_threshold: 0.9
-    fallback_threshold: 0.85       # used after regen attempts also fail
+    fallback_threshold: 0.85
   constraint_filter:
-    judge_model: "gpt-4o-2024-08-06"
+    judge_model: gpt_4o             # key into `models` below
     jaccard_threshold: 0.9
   deduplication:
-    min_edit_distance: 6           # >5 means >=6
+    min_edit_distance: 6
 
-# §5 — model list. The four-model headline. Keep IDs human-readable here; per-provider
-# resolution happens in prompt_sensitivity/models/registry.py.
+# §5 — models reached through the KIT/DSI LiteLLM gateway.
+#
+# ALL traffic goes through one OpenAI-compatible endpoint
+# (https://ai-gateway.dsi-experimente.de/v1) with one API key.
+# `provider: litellm` is the only provider until cluster access lands (Sprint 6).
+#
+# Capability flags reflect what the gateway exposes per model. Per §5.3 of the
+# design doc + 2026-05-12 supervisor exchange:
+#   - chat_logprobs:    /v1/chat/completions supports `logprobs=true, top_logprobs<=20`
+#   - echo_completions: /v1/completions supports `echo=true, logprobs=N, max_tokens=0`
+#                       (the only path to POSIX's forced sequence scoring pre-cluster).
+#   - has_hidden:       false everywhere via the gateway. Cluster-only.
+# The `model_id` strings below are LiteLLM-canonical names; the actual aliases
+# exposed by THIS gateway must be confirmed with `make list-models` and
+# overridden here if different.
 models:
   llama_3_1_8b:
-    provider: together
-    model_id: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"
-    has_logits: true
-    has_hidden: true               # only when run locally via vLLM/HF; False through Together
+    provider: litellm
+    model_id: "together_ai/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"
+    chat_logprobs: true
+    echo_completions: true        # Together backend supports /v1/completions echo
+    has_hidden: false
   mistral_7b_v03:
-    provider: together
-    model_id: "mistralai/Mistral-7B-Instruct-v0.3"
-    has_logits: true
-    has_hidden: true
+    provider: litellm
+    model_id: "together_ai/mistralai/Mistral-7B-Instruct-v0.3"
+    chat_logprobs: true
+    echo_completions: true
+    has_hidden: false
   qwen_2_5_7b:
-    provider: together
-    model_id: "Qwen/Qwen2.5-7B-Instruct-Turbo"
-    has_logits: true
-    has_hidden: true
+    provider: litellm
+    model_id: "together_ai/Qwen/Qwen2.5-7B-Instruct-Turbo"
+    chat_logprobs: true
+    echo_completions: true
+    has_hidden: false
   gpt_4o:
-    provider: openai
+    provider: litellm
     model_id: "gpt-4o-2024-08-06"
-    has_logits: false              # only top-20 logprobs through API; treat as black-box
-    has_hidden: false              # use text-embedding-3-large as proxy
+    chat_logprobs: true           # OpenAI gives top_logprobs<=20 on chat-completions
+    echo_completions: false       # OpenAI removed echo from modern chat models -> POSIX null
+    has_hidden: false
 
 # §6 — F(x) scoring.
 scoring:
   method: "nli_with_gold"           # NEVER exact_match (Hua 2025 EMNLP arXiv:2509.01790)
   nli_model: "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
   entail_threshold: 0.7
-  contradict_threshold: 0.5         # answer rejected if contradiction prob >= this
+  contradict_threshold: 0.5
   exact_match_appendix_only: true
 
 # §3 — H_sem clustering (Farquhar 2024 Nature).
@@ -80,7 +97,7 @@ h_sem:
   n_samples_per_prompt: 10
   sampling_temperature: 1.0
   cluster_nli_model: "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
-  cluster_threshold: 0.5            # bidirectional entailment for cluster merge
+  cluster_threshold: 0.5
 
 # §7.6.3 — bootstrap CIs.
 bootstrap:
@@ -90,22 +107,26 @@ bootstrap:
 # Embedding encoders.
 embedding:
   external_encoder: "sentence-transformers/all-mpnet-base-v2"
-  openai_encoder: "text-embedding-3-large"
+  # Gateway-routed OpenAI embedding; useful for closed-model proxy embeddings.
+  gateway_encoder: "text-embedding-3-large"
 
-# API access — rate limit + retry budget.
+# API access — single LiteLLM gateway.
 api:
+  base_url_env: "LITELLM_BASE_URL"
+  api_key_env: "LITELLM_API_KEY"
+  default_base_url: "https://ai-gateway.dsi-experimente.de/v1"
   max_retries: 6
   initial_backoff_s: 1.0
   max_backoff_s: 60.0
   rate_limit_qps:
-    together: 20.0
-    openai: 5.0
+    litellm: 10.0                  # conservative until we benchmark; gateway-side limit unknown
 
 # Cache — hash-based; never re-call same (prompt, model, sampling-params).
 cache:
   backend: sqlite
   path: "data/cache/llm_cache.sqlite"
 
-# Spend guard.
+# Spend guard. The gateway tracks per-key spend server-side; this is a local
+# soft cap surfaced in scripts so we abort if the supervisor's budget is at risk.
 spend:
   pilot_usd_cap: 150.0

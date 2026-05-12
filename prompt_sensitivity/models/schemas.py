@@ -2,6 +2,11 @@
 
 The schemas double as the cache key (everything in `LLMRequest` participates in
 the request hash) and as the on-disk record format.
+
+Pre-cluster (Sprint 1-5) the only provider is `litellm` (KIT/DSI gateway). The
+literal is left narrow so an accidentally-routed call (e.g. typo "openai")
+fails Pydantic validation rather than reaching the gateway with a wrong base
+URL. Add new providers explicitly when the cluster path lands in Sprint 6.
 """
 
 from __future__ import annotations
@@ -14,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 Role = Literal["system", "user", "assistant"]
+Provider = Literal["litellm"]
 
 
 class ChatMessage(BaseModel):
@@ -27,7 +33,7 @@ class LLMRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    provider: Literal["together", "openai"]
+    provider: Provider
     model_id: str
     messages: list[ChatMessage]
     temperature: float = 0.0
@@ -35,7 +41,7 @@ class LLMRequest(BaseModel):
     max_tokens: int = 256
     seed: int | None = None
     logprobs: bool = False
-    top_logprobs: int | None = None  # OpenAI: 0-20; Together: returns top-N.
+    top_logprobs: int | None = None  # OpenAI / LiteLLM: 0-20.
     stop: list[str] | None = None
     # Free-form `purpose` lets us shard the cache by call site (e.g. "F_score",
     # "h_sem_sample", "paraphrase_gen") so we can prune partial caches cleanly.
@@ -43,6 +49,37 @@ class LLMRequest(BaseModel):
 
     def cache_key(self) -> str:
         """SHA256 of canonical JSON. Must be deterministic across processes."""
+        payload = self.model_dump(mode="json")
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+class CompletionRequest(BaseModel):
+    """A legacy `/v1/completions` request — only used for echo-mode scoring.
+
+    POSIX (Chatterjee 2024 arXiv:2410.02185) needs `log P(y_j | x_i)` for an
+    arbitrary continuation y_j given prompt x_i. Chat-completions cannot do
+    this; the legacy completions endpoint with `echo=true, logprobs=N,
+    max_tokens=0` can — provided the underlying provider supports it. Through
+    our gateway, Together-hosted Llama/Mistral/Qwen support this; GPT-4o does
+    not.
+
+    Sprint 4 fills `score_continuation()` on the client to use this schema.
+    Until then the schema exists but no call site emits it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: Provider
+    model_id: str
+    prompt: str
+    max_tokens: int = 0
+    echo: bool = True
+    logprobs: int = 1
+    temperature: float = 0.0
+    purpose: str = "posix_echo"
+
+    def cache_key(self) -> str:
         payload = self.model_dump(mode="json")
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

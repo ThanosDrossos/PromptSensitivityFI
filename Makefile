@@ -1,7 +1,7 @@
 # PromptSensitivityFI — Makefile. Sprint-by-sprint entry points.
 # Use `uv` for everything; each `make` target maps to one Sprint-level deliverable.
 
-.PHONY: install test lint sample sprint1-verify clean
+.PHONY: install test lint sample sprint1-verify list-models clean
 
 install:
 	uv sync --all-extras
@@ -15,7 +15,12 @@ lint:
 
 # --- Sprint 1 entry points ---
 
-# 1.2 — round-trip determinism: hits every configured API at temperature=0 twice.
+# 1.2a — list models exposed by the LiteLLM gateway (run this BEFORE api-check
+#        to confirm config.yaml model_ids match what the supervisor registered).
+list-models:
+	uv run python -m prompt_sensitivity.scripts.list_models
+
+# 1.2b — round-trip determinism + logprob probe on every configured model.
 api-check:
 	uv run python -m prompt_sensitivity.scripts.api_check
 
@@ -31,7 +36,7 @@ sample:
 sprint1-no-api: install test data-download sample
 
 # Convenience target: full Sprint-1 verification (needs .env).
-sprint1-verify: install test data-download sample api-check
+sprint1-verify: install test list-models data-download sample api-check
 
 clean:
 	rm -rf .pytest_cache .ruff_cache **/__pycache__

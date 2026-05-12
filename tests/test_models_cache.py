@@ -12,7 +12,7 @@ from prompt_sensitivity.models.schemas import ChatMessage, LLMResponse
 
 def _req(content: str = "hi", **overrides) -> LLMRequest:
     base = dict(
-        provider="openai",
+        provider="litellm",
         model_id="gpt-4o-2024-08-06",
         messages=[ChatMessage(role="user", content=content)],
         temperature=0.0,

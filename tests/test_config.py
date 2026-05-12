@@ -13,10 +13,30 @@ def test_models_registered():
     cfg = load_config()
     expected = {"llama_3_1_8b", "mistral_7b_v03", "qwen_2_5_7b", "gpt_4o"}
     assert expected <= set(cfg.models.keys())
-    # Provider sanity check.
-    assert cfg.models["gpt_4o"].provider == "openai"
-    for k in expected - {"gpt_4o"}:
-        assert cfg.models[k].provider == "together"
+    # Pre-cluster, every model routes through the LiteLLM gateway.
+    for k in expected:
+        assert cfg.models[k].provider == "litellm"
+
+
+def test_capability_flags_match_gateway_matrix():
+    """Encodes the capability matrix from registry.py.
+
+    Open-weight Together models support echo (POSIX); GPT-4o does not.
+    No model exposes its own hidden state through the gateway (cluster-only).
+    """
+    cfg = load_config()
+    for k in ("llama_3_1_8b", "mistral_7b_v03", "qwen_2_5_7b"):
+        assert cfg.models[k].echo_completions is True, f"{k} should support echo via gateway"
+    assert cfg.models["gpt_4o"].echo_completions is False, "GPT-4o has no echo on chat models"
+    for k in cfg.models:
+        assert cfg.models[k].has_hidden is False, f"{k} hidden states are cluster-only"
+
+
+def test_api_routes_through_litellm():
+    cfg = load_config()
+    assert cfg.api.api_key_env == "LITELLM_API_KEY"
+    assert cfg.api.base_url_env == "LITELLM_BASE_URL"
+    assert cfg.api.default_base_url.startswith("https://"), "gateway URL must be https"
 
 
 def test_ladder_levels_match_design():
