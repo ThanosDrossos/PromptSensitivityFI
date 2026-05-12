@@ -65,6 +65,7 @@ class ParaphraseConfig(_Frozen):
     generator_temperature: float
     templates: list[str]
     raw_candidates_per_question: int
+    samples_per_template: int
     max_regeneration_attempts: int
     nli: NLIConfig
     constraint_filter: ConstraintFilterConfig
