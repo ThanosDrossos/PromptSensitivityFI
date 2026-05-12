@@ -9,9 +9,14 @@ __pycache__/
 build/
 dist/
 logs/*.log
+logs/*.json
 data/raw/
 data/cache/
 data/*.db
 data/*.parquet
 data/*.duckdb
+data/*.csv
+# Smoke / scratch outputs that we don't want in git but the pipeline writes there.
+data/paraphrases_smoke.parquet
+data/annotation_sample_v1.csv
 .DS_Store
