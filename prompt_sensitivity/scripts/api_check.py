@@ -1,32 +1,32 @@
 """Round-trip API verification — Sprint 1 §1.2 gate.
 
-For each configured model, fires the same prompt twice at temperature=0
-(second call hits the cache, so it's effectively free) and reports:
-  - first-call latency (ms)
-  - second-call latency (ms, expected ~0 from cache)
-  - bit-identity of outputs (within model determinism guarantees)
+For each configured model on the LiteLLM gateway:
+  1. Fires the same prompt twice at temperature=0. First call hits the gateway;
+     second is served from the local SQLite cache.
+  2. Re-fires once more with `logprobs=true, top_logprobs=5` (bypassing the
+     cache via a different `purpose` so we actually exercise the API path)
+     to verify the gateway returns logprobs for this model.
+  3. Reports: latency, deterministic-output match, whether logprobs came back.
 
-Run with: `make api-check`. Requires `.env` with TOGETHER_API_KEY and
-OPENAI_API_KEY.
+Run with `make api-check`. Requires `.env` with LITELLM_API_KEY (and optionally
+LITELLM_BASE_URL).
 """
 
 from __future__ import annotations
 
 import json
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 from loguru import logger
 
 from ..config import load_config
 from ..logging_setup import configure_logging
 from ..models import LLMRequest
-from ..models.registry import get_client, reset_clients
+from ..models.registry import get_client, list_gateway_models, reset_clients
 
 
-PROBE_MESSAGES = [
-    {"role": "user", "content": "Reply with exactly the single word: pong"},
-]
+PROBE_USER_MESSAGE = "Reply with exactly the single word: pong"
 
 
 @dataclass
@@ -39,28 +39,47 @@ class ApiCheckRow:
     first_ms: float | None
     second_ms: float | None
     deterministic: bool
+    logprobs_returned: bool
+    logprobs_topk: int | None
+    on_gateway: bool
     error: str | None = None
 
 
-def _probe(model_key: str) -> ApiCheckRow:
+def _probe(model_key: str, gateway_models: set[str]) -> ApiCheckRow:
     config = load_config()
     entry = config.models[model_key]
-    request = LLMRequest(
-        provider=entry.provider,  # type: ignore[arg-type]
+    on_gateway = entry.model_id in gateway_models if gateway_models else True
+    base_request_kwargs: dict = dict(
+        provider=entry.provider,
         model_id=entry.model_id,
-        messages=[{"role": m["role"], "content": m["content"]} for m in PROBE_MESSAGES],  # type: ignore[arg-type]
+        messages=[{"role": "user", "content": PROBE_USER_MESSAGE}],
         temperature=0.0,
         top_p=1.0,
         max_tokens=8,
         seed=42,
-        purpose="api_check",
     )
+
     client = get_client(model_key, config)
     try:
-        first = client.complete(request)
-        # The second call MUST hit the cache; we want to verify both the
-        # cache and (after a cache reset) provider determinism.
-        second = client.complete(request)
+        # Round-trip 1+2: identical request, second pulled from cache.
+        rt_request = LLMRequest(**base_request_kwargs, purpose="api_check_roundtrip")
+        first = client.complete(rt_request)
+        second = client.complete(rt_request)
+        # Round-trip 3: same prompt but with logprobs. Different `purpose`
+        # so this lands as a fresh cache miss and we actually probe the API.
+        lp_request = LLMRequest(
+            **base_request_kwargs,
+            logprobs=True,
+            top_logprobs=5,
+            purpose="api_check_logprobs",
+        )
+        lp_response = client.complete(lp_request)
+        logprobs_returned = bool(lp_response.token_logprobs)
+        logprobs_topk = (
+            len(lp_response.token_logprobs[0].top_logprobs)
+            if logprobs_returned
+            else None
+        )
         return ApiCheckRow(
             model_key=model_key,
             provider=entry.provider,
@@ -70,6 +89,9 @@ def _probe(model_key: str) -> ApiCheckRow:
             first_ms=first.latency_ms,
             second_ms=second.latency_ms,
             deterministic=(first.text == second.text),
+            logprobs_returned=logprobs_returned,
+            logprobs_topk=logprobs_topk,
+            on_gateway=on_gateway,
         )
     except Exception as exc:  # noqa: BLE001 — surface to operator
         logger.exception("probe failed for {}", model_key)
@@ -82,6 +104,9 @@ def _probe(model_key: str) -> ApiCheckRow:
             first_ms=None,
             second_ms=None,
             deterministic=False,
+            logprobs_returned=False,
+            logprobs_topk=None,
+            on_gateway=on_gateway,
             error=str(exc),
         )
 
@@ -89,45 +114,62 @@ def _probe(model_key: str) -> ApiCheckRow:
 def main() -> int:
     configure_logging("api_check")
     config = load_config()
-    reset_clients()  # ensure singleton cache picks up current config
+    reset_clients()
+
+    # Pull the gateway model catalogue once so we can flag config drift.
+    try:
+        gateway_models = set(list_gateway_models(config))
+        logger.info("gateway exposes {} models", len(gateway_models))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("could not list gateway models ({}); continuing", exc)
+        gateway_models = set()
 
     rows: list[ApiCheckRow] = []
     for model_key in config.models:
-        logger.info("probing {} -> {}", model_key, config.models[model_key].model_id)
-        rows.append(_probe(model_key))
+        logger.info(
+            "probing {} -> {} (expects chat_logprobs={}, echo={})",
+            model_key,
+            config.models[model_key].model_id,
+            config.models[model_key].chat_logprobs,
+            config.models[model_key].echo_completions,
+        )
+        rows.append(_probe(model_key, gateway_models))
 
+    # Table.
     print()
-    print("=" * 100)
-    print(f"{'model_key':<22} {'provider':<10} {'1st_ms':>10} {'2nd_ms':>10} {'det':>5} text")
-    print("-" * 100)
+    print("=" * 110)
+    header = f"{'model_key':<22} {'1st_ms':>8} {'2nd_ms':>8} {'det':>4} {'lp':>4} {'topK':>4} {'gw':>4}  text"
+    print(header)
+    print("-" * 110)
     failures = 0
+    logprob_mismatch = 0
     for r in rows:
         if r.error:
             failures += 1
-            print(f"{r.model_key:<22} {r.provider:<10} {'ERR':>10} {'ERR':>10} {'-':>5} {r.error[:40]}")
+            print(f"{r.model_key:<22} {'ERR':>8} {'ERR':>8} {'-':>4} {'-':>4} {'-':>4} {'-':>4}  {r.error[:60]}")
             continue
-        first_ms = f"{r.first_ms:>9.0f}" if r.first_ms is not None else "      n/a"
-        second_ms = f"{r.second_ms:>9.0f}" if r.second_ms is not None else "      n/a"
-        det = "yes" if r.deterministic else "NO"
-        print(f"{r.model_key:<22} {r.provider:<10} {first_ms:>10} {second_ms:>10} {det:>5} {r.first_text!r}")
-    print("=" * 100)
-    print(f"failures: {failures}/{len(rows)}")
+        first_ms = f"{r.first_ms:>7.0f}" if r.first_ms is not None else "    n/a"
+        second_ms = f"{r.second_ms:>7.0f}" if r.second_ms is not None else "    n/a"
+        det = "yes" if r.deterministic else " NO"
+        lp = "yes" if r.logprobs_returned else " no"
+        topk = str(r.logprobs_topk) if r.logprobs_topk is not None else "   -"
+        gw = "yes" if r.on_gateway else " NO"
+        print(
+            f"{r.model_key:<22} {first_ms:>8} {second_ms:>8} {det:>4} "
+            f"{lp:>4} {topk:>4} {gw:>4}  {r.first_text!r}"
+        )
+        # Soft-fail: configured to expect logprobs but the gateway didn't return any.
+        if config.models[r.model_key].chat_logprobs and not r.logprobs_returned:
+            logprob_mismatch += 1
+
+    print("=" * 110)
+    print(f"failures: {failures}/{len(rows)}, logprob mismatches: {logprob_mismatch}/{len(rows)}")
 
     summary = {
-        "rows": [
-            {
-                "model_key": r.model_key,
-                "provider": r.provider,
-                "model_id": r.model_id,
-                "first_ms": r.first_ms,
-                "second_ms": r.second_ms,
-                "deterministic": r.deterministic,
-                "first_text": r.first_text,
-                "error": r.error,
-            }
-            for r in rows
-        ],
+        "rows": [asdict(r) for r in rows],
         "failures": failures,
+        "logprob_mismatch": logprob_mismatch,
+        "gateway_models_count": len(gateway_models),
     }
     out_path = config.repo_root() / "logs" / "api_check_summary.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)

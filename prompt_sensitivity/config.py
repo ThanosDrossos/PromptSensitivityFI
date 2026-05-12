@@ -72,9 +72,17 @@ class ParaphraseConfig(_Frozen):
 
 
 class ModelEntry(_Frozen):
+    """Capability flags per model. See `Research_Design_v3` §5 + gateway capability matrix.
+
+    `chat_logprobs`: chat-completions returns top_logprobs<=20 for this model.
+    `echo_completions`: /v1/completions supports echo=true (POSIX prerequisite).
+    `has_hidden`: model's own last-layer hidden state is reachable (cluster-only).
+    """
+
     provider: str
     model_id: str
-    has_logits: bool
+    chat_logprobs: bool
+    echo_completions: bool
     has_hidden: bool
 
 
@@ -100,10 +108,15 @@ class BootstrapConfig(_Frozen):
 
 class EmbeddingConfig(_Frozen):
     external_encoder: str
-    openai_encoder: str
+    gateway_encoder: str
 
 
 class APIConfig(_Frozen):
+    """LiteLLM-gateway access config. Single endpoint, single key."""
+
+    base_url_env: str
+    api_key_env: str
+    default_base_url: str
     max_retries: int
     initial_backoff_s: float
     max_backoff_s: float
