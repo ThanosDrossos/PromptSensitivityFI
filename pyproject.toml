@@ -21,15 +21,19 @@ dependencies = [
   # (same protocol, just a different base_url). No direct OpenAI account needed.
   "openai>=1.50",
   "tqdm>=4.66",
-]
-
-[project.optional-dependencies]
-metrics = [
+  # NLI filter (Sprint 2) and metrics (Sprint 4) need these from day one.
+  # Previously gated under `[metrics]` extras — moved to core because the
+  # pipeline can't run without them and the optional-extras gate was a
+  # foot-gun (`uv sync` without `--all-extras` left an unusable venv).
   "transformers>=4.44",
   "torch>=2.3",
   "sentence-transformers>=3.0",
   "scikit-learn>=1.5",
-  "duckdb>=1.1",
+]
+
+[project.optional-dependencies]
+analysis = [
+  "duckdb>=1.1",                   # used in Sprint 5+ for grid analytics
 ]
 dev = [
   "pytest>=8.0",

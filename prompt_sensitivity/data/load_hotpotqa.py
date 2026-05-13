@@ -71,13 +71,12 @@ def load_hotpotqa_validation(
     hf_config: str = "distractor",
     split: str = "validation",
     cache_dir: str | None = None,
-    trust_remote_code: bool = True,
 ) -> list[MultiHopQuestion]:
     """Load and parse the full HotpotQA distractor validation split.
 
-    `trust_remote_code=True` is required because HotpotQA's HF loader uses a
-    legacy script-based dataset definition. There is no PyPI alternative for
-    the `distractor` config without forking the HF datasets library.
+    HotpotQA was migrated to parquet on the HF Hub in 2024; the legacy script
+    loader (which needed `trust_remote_code=True`) is gone and the kwarg now
+    raises a deprecation warning. We drop it.
     """
     from datasets import load_dataset  # noqa: WPS433 — heavy import, lazy
 
@@ -86,7 +85,6 @@ def load_hotpotqa_validation(
         hf_config,
         split=split,
         cache_dir=cache_dir,
-        trust_remote_code=trust_remote_code,
     )
     return [parse_hotpotqa_record(r) for r in _iterable(ds)]
 
