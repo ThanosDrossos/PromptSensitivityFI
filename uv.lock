@@ -996,29 +996,29 @@ dependencies = [
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
+    { name = "scikit-learn" },
     { name = "scipy" },
+    { name = "sentence-transformers" },
     { name = "tenacity" },
+    { name = "torch" },
     { name = "tqdm" },
+    { name = "transformers" },
 ]
 
 [package.optional-dependencies]
+analysis = [
+    { name = "duckdb" },
+]
 dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
 ]
-metrics = [
-    { name = "duckdb" },
-    { name = "scikit-learn" },
-    { name = "sentence-transformers" },
-    { name = "torch" },
-    { name = "transformers" },
-]
 
 [package.metadata]
 requires-dist = [
     { name = "datasets", specifier = ">=2.20" },
-    { name = "duckdb", marker = "extra == 'metrics'", specifier = ">=1.1" },
+    { name = "duckdb", marker = "extra == 'analysis'", specifier = ">=1.1" },
     { name = "loguru", specifier = ">=0.7" },
     { name = "numpy", specifier = ">=1.26,<3.0" },
     { name = "openai", specifier = ">=1.50" },
@@ -1030,15 +1030,15 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
-    { name = "scikit-learn", marker = "extra == 'metrics'", specifier = ">=1.5" },
+    { name = "scikit-learn", specifier = ">=1.5" },
     { name = "scipy", specifier = ">=1.13" },
-    { name = "sentence-transformers", marker = "extra == 'metrics'", specifier = ">=3.0" },
+    { name = "sentence-transformers", specifier = ">=3.0" },
     { name = "tenacity", specifier = ">=9.0" },
-    { name = "torch", marker = "extra == 'metrics'", specifier = ">=2.3" },
+    { name = "torch", specifier = ">=2.3" },
     { name = "tqdm", specifier = ">=4.66" },
-    { name = "transformers", marker = "extra == 'metrics'", specifier = ">=4.44" },
+    { name = "transformers", specifier = ">=4.44" },
 ]
-provides-extras = ["metrics", "dev"]
+provides-extras = ["analysis", "dev"]
 
 [[package]]
 name = "propcache"

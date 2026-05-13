@@ -33,6 +33,8 @@ def main() -> int:
         hf_config=config.sampling.hotpotqa.hf_config or "distractor",
         split=config.sampling.hotpotqa.split,
     )
+    # NB: `load_hotpotqa_validation` no longer accepts trust_remote_code —
+    # HotpotQA is parquet-backed on HF as of 2024.
     logger.info("HotpotQA validation: {} questions parsed", len(hotpot))
 
     logger.info("downloading 2WikiMultihopQA validation (framolfese repack) ...")
