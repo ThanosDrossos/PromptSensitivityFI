@@ -53,6 +53,7 @@ class NLIConfig(_Frozen):
 class ConstraintFilterConfig(_Frozen):
     judge_model: str
     jaccard_threshold: float
+    judge_max_tokens: int = 1024
 
 
 class DedupConfig(_Frozen):

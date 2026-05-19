@@ -2,7 +2,8 @@
 # Use `uv` for everything; each `make` target maps to one Sprint-level deliverable.
 
 .PHONY: install test lint sample sprint1-verify list-models clean \
-        paraphrases paraphrases-smoke export-annotation compute-kappa
+        paraphrases paraphrases-smoke export-annotation compute-kappa \
+        diagnose-paraphrases build-ladders
 
 install:
 	uv sync --all-extras
@@ -53,6 +54,11 @@ export-annotation:
 # 2.4b — Cohen's κ. Gate passes iff κ >= 0.8.
 compute-kappa:
 	uv run python -m prompt_sensitivity.scripts.compute_kappa
+
+# 2.x — diagnostic: read the paraphrase parquet and report rejection
+#       breakdown, NLI score distributions, threshold counterfactuals.
+diagnose-paraphrases:
+	uv run python -m prompt_sensitivity.scripts.diagnose_paraphrases
 
 # Convenience target: run all Sprint-1 deliverables that don't need API keys.
 sprint1-no-api: install test data-download sample

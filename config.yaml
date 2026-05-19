@@ -41,6 +41,11 @@ paraphrases:
   constraint_filter:
     judge_model: gpt_4o             # key into `models` below; substituted to kit.gpt-4.1
     jaccard_threshold: 0.9
+    # Was 256, but the smoke run caught the judge returning truncated JSON
+    # (e.g. `{"answers": ["private equity", "private`) which fell back to []
+    # and forced Jaccard=0 -> false rejection. 1024 leaves headroom for long
+    # answer-variant lists.
+    judge_max_tokens: 1024
   deduplication:
     min_edit_distance: 6
 

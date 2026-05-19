@@ -93,7 +93,7 @@ def _judge_request(judge_model_key: str, question: str, config: Config) -> LLMRe
         ],
         temperature=0.0,
         top_p=1.0,
-        max_tokens=256,
+        max_tokens=config.paraphrases.constraint_filter.judge_max_tokens,
         seed=42,
         purpose="constraint_judge",
     )
