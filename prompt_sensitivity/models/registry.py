@@ -113,17 +113,86 @@ class BaseLLMClient(ABC):
         return response
 
     def score_continuation(self, request: CompletionRequest) -> LLMResponse:
-        """Echo-mode forced sequence scoring. Sprint-4 implements POSIX on this."""
+        """Echo-mode forced sequence scoring. Used by POSIX (Sprint 4).
+
+        Calls `/v1/completions` with `echo=true, logprobs=N, max_tokens=0`
+        and returns an LLMResponse whose `token_logprobs` is the prompt
+        echo with one logprob per prompt token. POSIX sums the logprobs
+        for the y-position tokens to recover `log P(y | x)`.
+
+        IMPORTANT caveat — chat-template formatting is NOT applied. The
+        caller passes raw text in `request.prompt`. For chat models this
+        is an approximation of the chat-completion logprob; Sprint 6 will
+        use vLLM with the model's tokenizer chat template applied
+        directly.
+        """
         if not self.entry.echo_completions:
             raise RuntimeError(
-                f"model {self.entry.model_id!r} does not support echo-mode completions; "
-                f"set echo_completions=true in config or pick a different model"
+                f"model {self.entry.model_id!r} does not support echo-mode completions"
             )
-        raise NotImplementedError(
-            "score_continuation is wired through but not implemented in Sprint 1. "
-            "Sprint 4 will fill this for POSIX using /v1/completions with "
-            "echo=true, logprobs=1, max_tokens=0."
-        )
+        # Force registry-bound provider/model onto the request.
+        if request.model_id != self.entry.model_id or request.provider != self.entry.provider:
+            request = request.model_copy(
+                update={"model_id": self.entry.model_id, "provider": self.entry.provider}  # type: ignore[arg-type]
+            )
+
+        cached = self._cache_get_completion(request)
+        if cached is not None:
+            logger.debug("echo cache hit {} {}", self.entry.provider, request.cache_key()[:8])
+            return cached
+
+        self._bucket.acquire(1.0)
+        t0 = time.perf_counter()
+        response = self._raw_completion(request)
+        response.latency_ms = (time.perf_counter() - t0) * 1000.0
+        response.request_hash = request.cache_key()
+        response.cached = False
+        self._cache_put_completion(request, response)
+        return response
+
+    # Subclass hook for /v1/completions echo. LiteLLMClient implements;
+    # other providers raise NotImplementedError.
+    def _raw_completion(self, request: CompletionRequest) -> LLMResponse:
+        raise NotImplementedError(f"{type(self).__name__} does not implement echo completions")
+
+    # The cache is keyed on LLMRequest.cache_key() but CompletionRequest
+    # also has a cache_key() of the same SHA256-of-canonical-JSON shape.
+    # We piggy-back on the existing SQLite by storing under the same
+    # request_hash column; the provider+model_id columns let us prune.
+    def _cache_get_completion(self, request: CompletionRequest) -> LLMResponse | None:
+        key = request.cache_key()
+        with self.cache._lock:  # noqa: SLF001 — intentional intra-package access
+            row = self.cache._conn.execute(  # noqa: SLF001
+                "SELECT response_json FROM llm_cache WHERE request_hash = ?",
+                (key,),
+            ).fetchone()
+        if row is None:
+            return None
+        response = LLMResponse.model_validate_json(row[0])
+        response.cached = True
+        return response
+
+    def _cache_put_completion(self, request: CompletionRequest, response: LLMResponse) -> None:
+        key = request.cache_key()
+        if response.request_hash != key:
+            response = response.model_copy(update={"request_hash": key})
+        with self.cache._lock:  # noqa: SLF001
+            self.cache._conn.execute(  # noqa: SLF001
+                """
+                INSERT OR REPLACE INTO llm_cache
+                  (request_hash, provider, model_id, purpose, request_json, response_json)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    key,
+                    request.provider,
+                    request.model_id,
+                    request.purpose,
+                    request.model_dump_json(),
+                    response.model_dump_json(),
+                ),
+            )
+            self.cache._conn.commit()  # noqa: SLF001
 
     # ---------------- subclass hooks ----------------
 
@@ -225,6 +294,62 @@ class LiteLLMClient(BaseLLMClient):
             token_logprobs=token_logprobs,
             raw_provider_response=None,  # too large to store; re-derive if needed
         )
+
+
+    def _raw_completion(self, request: CompletionRequest) -> LLMResponse:
+        """`/v1/completions` echo path used by POSIX.
+
+        LiteLLM routes this to the provider's text-completions endpoint.
+        Together (which fronts our 3 open-weight models on this gateway)
+        supports `echo=true, logprobs=N, max_tokens=0` and returns one
+        logprob per prompt token. OpenAI (kit.gpt-4.1) does not support
+        echo on modern chat models; the caller is expected to consult
+        `entry.echo_completions` first.
+        """
+        kwargs: dict[str, Any] = dict(
+            model=self.entry.model_id,
+            prompt=request.prompt,
+            max_tokens=request.max_tokens,
+            temperature=request.temperature,
+            logprobs=request.logprobs,
+            echo=request.echo,
+        )
+        completion = self._sdk.completions.create(**kwargs)
+        choice = completion.choices[0]
+        text = choice.text or ""
+        finish = getattr(choice, "finish_reason", None)
+        usage = getattr(completion, "usage", None)
+        prompt_tokens = getattr(usage, "prompt_tokens", None) if usage else None
+        completion_tokens = getattr(usage, "completion_tokens", None) if usage else None
+        token_logprobs = _extract_text_logprobs(choice)
+        return LLMResponse(
+            request_hash=request.cache_key(),
+            text=text,
+            finish_reason=finish,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            token_logprobs=token_logprobs,
+            raw_provider_response=None,
+        )
+
+
+def _extract_text_logprobs(choice: Any) -> list[TokenLogprob] | None:
+    """Legacy /v1/completions logprob shape: `choice.logprobs.tokens` + `.token_logprobs`."""
+    lp = getattr(choice, "logprobs", None)
+    if lp is None:
+        return None
+    tokens = getattr(lp, "tokens", None) or []
+    token_logprobs = getattr(lp, "token_logprobs", None) or []
+    top_logprobs = getattr(lp, "top_logprobs", None) or [None] * len(tokens)
+    out: list[TokenLogprob] = []
+    for tok, logp, top in zip(tokens, token_logprobs, top_logprobs, strict=False):
+        if logp is None:
+            continue
+        top_dict: dict[str, float] = {}
+        if isinstance(top, dict):
+            top_dict = {str(k): float(v) for k, v in top.items()}
+        out.append(TokenLogprob(token=tok, logprob=float(logp), top_logprobs=top_dict))
+    return out or None
 
 
 def _extract_chat_logprobs(choice: Any) -> list[TokenLogprob] | None:

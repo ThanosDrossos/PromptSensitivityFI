@@ -3,7 +3,7 @@
 
 .PHONY: install test lint sample sprint1-verify list-models clean \
         paraphrases paraphrases-smoke export-annotation compute-kappa \
-        diagnose-paraphrases build-ladders
+        diagnose-paraphrases build-ladders smoke-metrics
 
 install:
 	uv sync --all-extras
@@ -59,6 +59,13 @@ compute-kappa:
 #       breakdown, NLI score distributions, threshold counterfactuals.
 diagnose-paraphrases:
 	uv run python -m prompt_sensitivity.scripts.diagnose_paraphrases
+
+# --- Sprint 4 entry points ---
+
+# 4.x — orchestrator smoke test on hand-built inputs. No network calls.
+#       Sprint-4 gate: must return a plausible 11-scalar MetricTuple.
+smoke-metrics:
+	uv run python -m prompt_sensitivity.scripts.smoke_metrics
 
 # Convenience target: run all Sprint-1 deliverables that don't need API keys.
 sprint1-no-api: install test data-download sample
