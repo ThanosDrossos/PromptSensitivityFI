@@ -9,6 +9,7 @@ param(
         "install", "test", "lint",
         "api-check", "list-models", "data-download", "sample",
         "paraphrases", "paraphrases-smoke", "export-annotation", "compute-kappa",
+        "diagnose-paraphrases", "build-ladders",
         "sprint1-no-api", "sprint1-verify",
         "clean"
     )]
@@ -48,6 +49,8 @@ switch ($Target) {
     }
     "export-annotation"{ Run-Module "prompt_sensitivity.scripts.export_annotation_sample" }
     "compute-kappa"    { Run-Module "prompt_sensitivity.scripts.compute_kappa" }
+    "diagnose-paraphrases" { Run-Module "prompt_sensitivity.scripts.diagnose_paraphrases" }
+    "build-ladders"    { Run-Module "prompt_sensitivity.scripts.build_ladders" }
     "sprint1-no-api" {
         Run-UvSync; Run-Pytest
         Run-Module "prompt_sensitivity.scripts.download_datasets"

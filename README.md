@@ -126,3 +126,40 @@ If `list-models` shows a model alias that's missing from `config.yaml`,
 edit `config.yaml.models.<key>.model_id` to match one of the printed IDs
 and re-run. (LiteLLM admins can register custom aliases; the canonical
 LiteLLM names baked into the default config may not be the ones registered.)
+
+## Troubleshooting Sprint 2 — paraphrase rejection rate too high
+
+DeBERTa-v3-large-MNLI was trained on declarative premise-hypothesis pairs,
+not question-question pairs, and the default `nli.bidirectional_threshold:
+0.9` can reject the majority of genuine paraphrases on real HotpotQA
+questions. The Sprint-2 brief explicitly allows tuning this at the κ gate.
+
+Diagnostic flow:
+
+```powershell
+# Inspect what's actually being rejected and why.
+.\tasks.ps1 diagnose-paraphrases   # reads data/paraphrases_smoke.parquet by default
+
+# Output includes a "THRESHOLD COUNTERFACTUAL" table showing how many extra
+# candidates would pass at lower τ. Use it to pick a value.
+```
+
+If the counterfactual table shows e.g. "τ=0.7 → 600 additional candidates
+would pass", edit `config.yaml`:
+
+```yaml
+paraphrases:
+  nli:
+    bidirectional_threshold: 0.7      # was 0.9
+    fallback_threshold: 0.6           # was 0.85
+```
+
+Re-run `.\tasks.ps1 paraphrases-smoke` — generator calls are cached from
+your previous run, so it's effectively free (only NLI + constraint + dedup
+re-run). When the smoke gives you a reasonable count, run the full
+`.\tasks.ps1 paraphrases`, then `.\tasks.ps1 export-annotation` for Diener.
+
+The κ gate is the real arbiter: Cohen's κ across annotated samples
+determines whether the chosen threshold is calibrated. If κ < 0.8 after the
+manual round, tighten the threshold and regenerate (which is, again,
+cache-cheap on the generator side).

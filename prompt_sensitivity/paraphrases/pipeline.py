@@ -127,6 +127,20 @@ def build_paraphrase_set(
             config=config,
             threshold=threshold,
         )
+        # Diagnostic: log the score distribution for this batch so the user
+        # can spot a "model never says yes" problem without re-running.
+        if nli_rows:
+            mins = [min(s.entail_fwd, s.entail_bwd) for _, s in nli_rows]
+            n_pass = sum(1 for p, _ in nli_rows if p)
+            logger.info(
+                "qid={} NLI batch: pass={}/{} min(fwd,bwd) p50={:.2f} p90={:.2f} max={:.2f}",
+                question_id,
+                n_pass,
+                len(nli_rows),
+                float(sorted(mins)[len(mins) // 2]),
+                float(sorted(mins)[max(0, int(len(mins) * 0.9) - 1)]),
+                float(max(mins)),
+            )
         post_nli: list[_Scored] = []
         for raw, (passed, scores) in zip(round_candidates, nli_rows, strict=True):
             if not passed:
