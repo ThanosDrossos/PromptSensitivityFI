@@ -7,6 +7,12 @@ the union of cluster IDs observed across all paraphrases of q at one
 (ladder, level). This is the rarefaction-style estimator §7.8 P3 warns about;
 we mitigate by exposing the count for the writeup to comment on.
 
+CONTRACT: `cluster_assignments` MUST use POOLED cluster IDs — i.e. cluster
+ID `c` means the same semantic cluster across every paraphrase in the cell.
+Use `h_sem.cluster_responses_pooled` to obtain such IDs. Calling this with
+independently-clustered IDs (one cluster_responses call per paraphrase) will
+over-count |A_q| and silently inflate FI_out.
+
 Identity check (Section_7 §7.4.1):  FI_out + H_sem = log2|A_q|.
 """
 

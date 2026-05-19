@@ -136,7 +136,7 @@ class BaseLLMClient(ABC):
                 update={"model_id": self.entry.model_id, "provider": self.entry.provider}  # type: ignore[arg-type]
             )
 
-        cached = self._cache_get_completion(request)
+        cached = self.cache.get(request)
         if cached is not None:
             logger.debug("echo cache hit {} {}", self.entry.provider, request.cache_key()[:8])
             return cached
@@ -147,52 +147,13 @@ class BaseLLMClient(ABC):
         response.latency_ms = (time.perf_counter() - t0) * 1000.0
         response.request_hash = request.cache_key()
         response.cached = False
-        self._cache_put_completion(request, response)
+        self.cache.put(request, response)
         return response
 
     # Subclass hook for /v1/completions echo. LiteLLMClient implements;
     # other providers raise NotImplementedError.
     def _raw_completion(self, request: CompletionRequest) -> LLMResponse:
         raise NotImplementedError(f"{type(self).__name__} does not implement echo completions")
-
-    # The cache is keyed on LLMRequest.cache_key() but CompletionRequest
-    # also has a cache_key() of the same SHA256-of-canonical-JSON shape.
-    # We piggy-back on the existing SQLite by storing under the same
-    # request_hash column; the provider+model_id columns let us prune.
-    def _cache_get_completion(self, request: CompletionRequest) -> LLMResponse | None:
-        key = request.cache_key()
-        with self.cache._lock:  # noqa: SLF001 — intentional intra-package access
-            row = self.cache._conn.execute(  # noqa: SLF001
-                "SELECT response_json FROM llm_cache WHERE request_hash = ?",
-                (key,),
-            ).fetchone()
-        if row is None:
-            return None
-        response = LLMResponse.model_validate_json(row[0])
-        response.cached = True
-        return response
-
-    def _cache_put_completion(self, request: CompletionRequest, response: LLMResponse) -> None:
-        key = request.cache_key()
-        if response.request_hash != key:
-            response = response.model_copy(update={"request_hash": key})
-        with self.cache._lock:  # noqa: SLF001
-            self.cache._conn.execute(  # noqa: SLF001
-                """
-                INSERT OR REPLACE INTO llm_cache
-                  (request_hash, provider, model_id, purpose, request_json, response_json)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    key,
-                    request.provider,
-                    request.model_id,
-                    request.purpose,
-                    request.model_dump_json(),
-                    response.model_dump_json(),
-                ),
-            )
-            self.cache._conn.commit()  # noqa: SLF001
 
     # ---------------- subclass hooks ----------------
 

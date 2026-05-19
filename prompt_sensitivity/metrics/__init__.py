@@ -23,7 +23,7 @@ Module layout:
 
 from .schemas import MetricTuple, ResponseSample
 from .fi_in import fi_in, fi_in_curve, aufi_in, fi_in_bootstrap
-from .h_sem import h_sem, cluster_responses
+from .h_sem import h_sem, cluster_responses, cluster_responses_pooled
 from .fi_out import fi_out
 from .errica import s_tau_freeform, s_tau_multiple_choice, tvd_consistency
 from .posix import posix
@@ -42,6 +42,7 @@ __all__ = [
     "fi_in_bootstrap",
     "h_sem",
     "cluster_responses",
+    "cluster_responses_pooled",
     "fi_out",
     "s_tau_freeform",
     "s_tau_multiple_choice",
