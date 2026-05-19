@@ -2,18 +2,38 @@
 
 Implements the §7.3 hard rule: never re-call a (prompt, model, sampling-params)
 tuple already in the database. The cache is keyed by SHA256 of the canonical
-JSON of `LLMRequest`, so any change to messages, temperature, model id,
-top_logprobs, etc. invalidates a hit — exactly what we want.
+JSON of the request, so any change to messages, temperature, model id,
+top_logprobs, echo flag, etc. invalidates a hit — exactly what we want.
+
+The cache is polymorphic across request shapes: anything that satisfies the
+`Cacheable` protocol (cache_key(), provider, model_id, purpose, JSON-dump-
+able) lands in the same SQLite table. Used by both `LLMRequest`
+(chat-completions path) and `CompletionRequest` (echo path for POSIX).
 """
 
 from __future__ import annotations
 
-import json
 import sqlite3
 import threading
 from pathlib import Path
+from typing import Protocol, runtime_checkable
 
-from .schemas import LLMRequest, LLMResponse
+from .schemas import LLMResponse
+
+
+@runtime_checkable
+class Cacheable(Protocol):
+    """The structural contract a request type must satisfy to use this cache.
+
+    Concretely: `LLMRequest` and `CompletionRequest` both implement this.
+    """
+
+    provider: str
+    model_id: str
+    purpose: str
+
+    def cache_key(self) -> str: ...
+    def model_dump_json(self) -> str: ...
 
 
 _DDL = """
@@ -51,8 +71,11 @@ class LLMCache:
                 self._conn.execute(stmt)
         self._conn.commit()
 
-    def get(self, request: LLMRequest) -> LLMResponse | None:
-        key = request.cache_key()
+    def get(self, request: Cacheable) -> LLMResponse | None:
+        """Hash-keyed lookup. Works for LLMRequest, CompletionRequest, etc."""
+        return self.get_by_key(request.cache_key())
+
+    def get_by_key(self, key: str) -> LLMResponse | None:
         with self._lock:
             row = self._conn.execute(
                 "SELECT response_json FROM llm_cache WHERE request_hash = ?",
@@ -64,7 +87,8 @@ class LLMCache:
         response.cached = True
         return response
 
-    def put(self, request: LLMRequest, response: LLMResponse) -> None:
+    def put(self, request: Cacheable, response: LLMResponse) -> None:
+        """Store a request/response pair. Works for any Cacheable shape."""
         key = request.cache_key()
         if response.request_hash != key:
             response = response.model_copy(update={"request_hash": key})
@@ -80,7 +104,7 @@ class LLMCache:
                     request.provider,
                     request.model_id,
                     request.purpose,
-                    json.dumps(request.model_dump(mode="json"), sort_keys=True),
+                    request.model_dump_json(),
                     response.model_dump_json(),
                 ),
             )

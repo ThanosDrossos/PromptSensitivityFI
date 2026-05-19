@@ -13,6 +13,21 @@ Pipeline (per Farquhar §Methods, Sprint-4 brief §2):
 
 The DeBERTa loader from `paraphrases/nli_filter.py` is reused — the model is
 ~1.6 GB and we don't want it loaded twice in one process.
+
+CONTRACT — cluster ID coherence
+-------------------------------
+`cluster_responses(list[str]) -> list[int]` only clusters WITHIN the given
+list. Cluster IDs from two independent calls are NOT comparable: ID 0 in
+call A is not the same semantic cluster as ID 0 in call B.
+
+For metrics that need comparable IDs across paraphrases of the same cell
+(FI_out, S_τ_freeform, tvd_consistency, estimate_a_q, MetricTuple's
+H_sem_mean), callers MUST use `cluster_responses_pooled` — it pools all
+responses across paraphrases, clusters once, and slices back into per-
+paraphrase assignments with shared IDs.
+
+This is enforced by Sprint-5 driver code, not by the metric layer (which
+remains a pure function over precomputed inputs).
 """
 
 from __future__ import annotations
@@ -155,3 +170,44 @@ def h_sem(
 def n_unique_clusters(assignment: Iterable[int]) -> int:
     """|cluster set| — used as |A_q,x| building block for FI_out."""
     return len(set(assignment))
+
+
+def cluster_responses_pooled(
+    responses_per_prompt: Mapping[int, Sequence[str]],
+    *,
+    config: Config | None = None,
+    threshold: float | None = None,
+) -> dict[int, list[int]]:
+    """Pool-cluster responses across paraphrases; return per-prompt assignments
+    with cluster IDs that are comparable across prompts.
+
+    This is the API that Sprint-5 pipeline code uses to feed FI_out / S_τ /
+    1-TVD / |A_q|. The naive alternative — clustering each paraphrase's
+    responses independently and hoping ID 0 means the same thing in both —
+    over-counts |A_q| and mis-computes inter-paraphrase consistency.
+
+    Implementation: concatenate all responses into one flat list, run a
+    single union-find clustering, then slice the result back into the
+    original per-paraphrase shape.
+
+    Returns dict {paraphrase_idx -> [cluster_id, ...]} with the same shape
+    as `responses_per_prompt`.
+    """
+    items = list(responses_per_prompt.items())
+    if not items:
+        return {}
+
+    # Flatten while remembering each slice's range.
+    flat: list[str] = []
+    ranges: list[tuple[int, int, int]] = []  # (paraphrase_idx, start, end)
+    for idx, resps in items:
+        start = len(flat)
+        flat.extend(resps)
+        ranges.append((idx, start, len(flat)))
+
+    pooled_assignment = cluster_responses(flat, config=config, threshold=threshold)
+
+    out: dict[int, list[int]] = {}
+    for idx, start, end in ranges:
+        out[idx] = pooled_assignment[start:end]
+    return out

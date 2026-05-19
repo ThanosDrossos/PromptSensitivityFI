@@ -15,6 +15,11 @@ Free-form pre-cluster: we use the H_sem-derived MC variant (cluster
 proportions as the empirical distribution), because the gateway does not
 expose full-vocab token logprobs needed for the original token-entropy
 formulation (see registry capability matrix).
+
+CONTRACT: cluster_assignments fed to s_tau_freeform / tvd_consistency MUST
+use POOLED cluster IDs across paraphrases of the cell (see h_sem
+docstring). Independent per-paraphrase clusterings would produce
+incompatible distributions and break TVD entirely.
 """
 
 from __future__ import annotations
