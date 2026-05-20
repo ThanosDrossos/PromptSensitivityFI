@@ -101,7 +101,12 @@ def test_judge_contains_gold_passes_when_judge_says_true(monkeypatch):
             return _FakeResp()
 
     monkeypatch.setattr(cf, "get_client", lambda *a, **k: _FakeClient())
-    assert cf.judge_contains_gold("any paraphrase", "Paris") is True
+    assert (
+        cf.judge_contains_gold(
+            "any paraphrase", "Paris", original_question="What is the capital of France?"
+        )
+        is True
+    )
 
 
 def test_judge_contains_gold_returns_false_on_unparseable(monkeypatch):
@@ -117,7 +122,12 @@ def test_judge_contains_gold_returns_false_on_unparseable(monkeypatch):
             return _FakeResp()
 
     monkeypatch.setattr(cf, "get_client", lambda *a, **k: _FakeClient())
-    assert cf.judge_contains_gold("any paraphrase", "Paris") is False
+    assert (
+        cf.judge_contains_gold(
+            "any paraphrase", "Paris", original_question="What is the capital of France?"
+        )
+        is False
+    )
 
 
 def test_filter_by_constraint_with_gold_returns_parallel_bools(monkeypatch):
@@ -136,5 +146,38 @@ def test_filter_by_constraint_with_gold_returns_parallel_bools(monkeypatch):
             return _FakeResp(next(answers))
 
     monkeypatch.setattr(cf, "get_client", lambda *a, **k: _FakeClient())
-    out = cf.filter_by_constraint_with_gold(["a", "b", "c"], "GOLD")
+    out = cf.filter_by_constraint_with_gold(
+        ["a", "b", "c"], "GOLD", original_question="orig question?"
+    )
     assert out == [True, False, True]
+
+
+def test_judge_prompt_includes_original_question(monkeypatch):
+    """The new charitable prompt MUST embed the original question; otherwise the
+    judge has to guess and over-rejects (the 2026-05-20 smoke regression).
+    """
+    from prompt_sensitivity.paraphrases import constraint_filter as cf
+
+    captured: list[str] = []
+
+    class _FakeResp:
+        text = '{"valid": true}'
+        request_hash = "h"
+
+    class _FakeClient:
+        def complete(self, req):
+            # User message is the second one; concat content for inspection.
+            captured.append(req.messages[1].content)
+            return _FakeResp()
+
+    monkeypatch.setattr(cf, "get_client", lambda *a, **k: _FakeClient())
+    cf.judge_contains_gold(
+        "rephrased version here",
+        "Paris",
+        original_question="What is the capital of France?",
+    )
+    assert captured, "judge was not called"
+    user_msg = captured[0]
+    assert "What is the capital of France?" in user_msg
+    assert "Paris" in user_msg
+    assert "rephrased version here" in user_msg
