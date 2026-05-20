@@ -146,7 +146,16 @@ def main() -> int:
         if qid in existing_ids:
             continue
         try:
-            pset = build_paraphrase_set(qid, q.question, config=config)
+            # Pass the dataset's known answer so the constraint filter can
+            # use the gold-based judge (one yes/no per candidate) instead of
+            # the fragile judge-vs-judge Jaccard path. Both HotpotQA and
+            # framolfese/2WikiMultihopQA ship MultiHopQuestion.answer.
+            pset = build_paraphrase_set(
+                qid,
+                q.question,
+                config=config,
+                gold_answer=q.answer,
+            )
         except Exception:  # noqa: BLE001
             logger.exception("pipeline failed for qid={}", qid)
             continue

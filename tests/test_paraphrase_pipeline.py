@@ -155,6 +155,80 @@ def test_dropped_when_nli_never_passes(monkeypatch):
     assert nli_reject_count > 0
 
 
+def test_gold_answer_routes_to_gold_filter(monkeypatch):
+    """When gold_answer is supplied, the gold-based filter is used and the
+    legacy Jaccard filter is NOT called.
+    """
+    raw = [_make_raw("q5", "neutral", i, t) for i, t in enumerate(_diverse_paraphrases(40))]
+
+    gold_calls: list[list[str]] = []
+    jaccard_calls: list[list[str]] = []
+
+    def fake_gold_filter(candidates, gold, *, config=None):
+        gold_calls.append(list(candidates))
+        return [True] * len(list(candidates))  # all pass
+
+    def fake_jaccard_filter(original, candidates, *, config=None, threshold=None):
+        jaccard_calls.append(list(candidates))
+        return [(True, JaccardResult(jaccard=1.0, a_set=frozenset(), b_set=frozenset()))
+                for _ in candidates]
+
+    with patch(
+        "prompt_sensitivity.paraphrases.pipeline.generate_raw_paraphrases",
+        side_effect=_scripted_generate(_per_attempt=[raw]),
+    ), patch(
+        "prompt_sensitivity.paraphrases.pipeline.filter_by_nli",
+        side_effect=_high_nli,
+    ), patch(
+        "prompt_sensitivity.paraphrases.pipeline.filter_by_constraint_with_gold",
+        side_effect=fake_gold_filter,
+    ), patch(
+        "prompt_sensitivity.paraphrases.pipeline.filter_by_constraint",
+        side_effect=fake_jaccard_filter,
+    ):
+        pset = build_paraphrase_set("q5", "What?", gold_answer="Paris")
+
+    assert pset.is_complete(30)
+    assert gold_calls, "gold filter must be used when gold_answer is supplied"
+    assert not jaccard_calls, "jaccard filter must NOT be called when gold_answer is supplied"
+
+
+def test_no_gold_answer_falls_back_to_jaccard(monkeypatch):
+    """When gold_answer is None, the legacy Jaccard filter is used."""
+    raw = [_make_raw("q6", "neutral", i, t) for i, t in enumerate(_diverse_paraphrases(40))]
+
+    gold_calls: list[list[str]] = []
+    jaccard_calls: list[list[str]] = []
+
+    def fake_gold_filter(candidates, gold, *, config=None):
+        gold_calls.append(list(candidates))
+        return [True] * len(list(candidates))
+
+    def fake_jaccard_filter(original, candidates, *, config=None, threshold=None):
+        jaccard_calls.append(list(candidates))
+        return [(True, JaccardResult(jaccard=1.0, a_set=frozenset(), b_set=frozenset()))
+                for _ in candidates]
+
+    with patch(
+        "prompt_sensitivity.paraphrases.pipeline.generate_raw_paraphrases",
+        side_effect=_scripted_generate(_per_attempt=[raw]),
+    ), patch(
+        "prompt_sensitivity.paraphrases.pipeline.filter_by_nli",
+        side_effect=_high_nli,
+    ), patch(
+        "prompt_sensitivity.paraphrases.pipeline.filter_by_constraint_with_gold",
+        side_effect=fake_gold_filter,
+    ), patch(
+        "prompt_sensitivity.paraphrases.pipeline.filter_by_constraint",
+        side_effect=fake_jaccard_filter,
+    ):
+        pset = build_paraphrase_set("q6", "What?")  # no gold_answer
+
+    assert pset.is_complete(30)
+    assert jaccard_calls, "jaccard filter must be used when no gold_answer"
+    assert not gold_calls, "gold filter must NOT be called when gold_answer is None"
+
+
 def test_exact_duplicate_of_original_is_rejected(monkeypatch):
     """A candidate that's identical (modulo case) to the original is rejected pre-NLI."""
     raw = [
