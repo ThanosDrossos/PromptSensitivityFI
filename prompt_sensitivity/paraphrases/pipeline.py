@@ -30,7 +30,7 @@ from typing import Sequence
 from loguru import logger
 
 from ..config import Config, load_config
-from .constraint_filter import filter_by_constraint
+from .constraint_filter import filter_by_constraint, filter_by_constraint_with_gold
 from .deduplicate import deduplicate
 from .generate import generate_raw_paraphrases
 from .nli_filter import filter_by_nli
@@ -63,8 +63,21 @@ def build_paraphrase_set(
     question_text: str,
     *,
     config: Config | None = None,
+    gold_answer: str | None = None,
 ) -> ParaphraseSet:
-    """Run the full pipeline for one question."""
+    """Run the full pipeline for one question.
+
+    `gold_answer` (preferred) — pass the dataset's ground-truth answer
+    (`MultiHopQuestion.answer`) to use the gold-based constraint filter:
+    each candidate gets a single yes/no judge call "does this rephrasing
+    still have GOLD as a valid answer?". Robust to surface-form drift.
+
+    When `gold_answer` is None, falls back to the brief's original
+    judge-vs-judge Jaccard ≥ 0.9 path. The 2026-05-20 smoke run showed the
+    Jaccard path drops 95-100% of candidates that pass NLI, because two
+    independent judge calls produce divergent answer surface forms. Prefer
+    `gold_answer` whenever the data has one (HotpotQA + 2Wiki both do).
+    """
     if config is None:
         config = load_config()
     pcfg = config.paraphrases
@@ -164,33 +177,73 @@ def build_paraphrase_set(
             post_nli.append(_Scored(raw=raw, nli_fwd=scores.entail_fwd, nli_bwd=scores.entail_bwd, jaccard=math.nan))
 
         # ----- step 4: constraint filter -----
+        # Prefer the gold-based filter (one yes/no judge call per candidate
+        # against the dataset's known answer). Fall back to judge-vs-judge
+        # Jaccard when no gold answer is supplied.
+        constraint_pass = 0
+        constraint_total = len(post_nli)
         if post_nli:
-            cf_rows = filter_by_constraint(
-                question_text,
-                [s.raw.text for s in post_nli],
-                config=config,
-            )
             survivors: list[_Scored] = []
-            for s, (passed, j_res) in zip(post_nli, cf_rows, strict=True):
-                s.jaccard = j_res.jaccard
-                if not passed:
-                    pset.rejected.append(
-                        RejectedParaphrase(
-                            question_id=question_id,
-                            role=s.raw.role,
-                            sample_idx=s.raw.sample_idx,
-                            text=s.raw.text,
-                            reason="constraint_mismatch",
-                            nli_entail_fwd=s.nli_fwd,
-                            nli_entail_bwd=s.nli_bwd,
-                            constraint_jaccard=j_res.jaccard,
+            if gold_answer is not None:
+                bools = filter_by_constraint_with_gold(
+                    [s.raw.text for s in post_nli],
+                    gold_answer,
+                    config=config,
+                )
+                for s, passed in zip(post_nli, bools, strict=True):
+                    if not passed:
+                        pset.rejected.append(
+                            RejectedParaphrase(
+                                question_id=question_id,
+                                role=s.raw.role,
+                                sample_idx=s.raw.sample_idx,
+                                text=s.raw.text,
+                                reason="constraint_mismatch",
+                                nli_entail_fwd=s.nli_fwd,
+                                nli_entail_bwd=s.nli_bwd,
+                                # constraint_jaccard left null — gold-based filter has no Jaccard
+                            )
                         )
-                    )
-                    continue
-                survivors.append(s)
+                        continue
+                    survivors.append(s)
+            else:
+                cf_rows = filter_by_constraint(
+                    question_text,
+                    [s.raw.text for s in post_nli],
+                    config=config,
+                )
+                for s, (passed, j_res) in zip(post_nli, cf_rows, strict=True):
+                    s.jaccard = j_res.jaccard
+                    if not passed:
+                        pset.rejected.append(
+                            RejectedParaphrase(
+                                question_id=question_id,
+                                role=s.raw.role,
+                                sample_idx=s.raw.sample_idx,
+                                text=s.raw.text,
+                                reason="constraint_mismatch",
+                                nli_entail_fwd=s.nli_fwd,
+                                nli_entail_bwd=s.nli_bwd,
+                                constraint_jaccard=j_res.jaccard,
+                            )
+                        )
+                        continue
+                    survivors.append(s)
+            constraint_pass = len(survivors)
             accepted.extend(survivors)
+        # Diagnostic: per-batch constraint pass rate.
+        if constraint_total > 0:
+            mode = "gold" if gold_answer is not None else "jaccard"
+            logger.info(
+                "qid={} constraint batch ({}): pass={}/{}",
+                question_id,
+                mode,
+                constraint_pass,
+                constraint_total,
+            )
 
         # ----- step 5: dedup against all accepted so far -----
+        pre_dedup = len(accepted)
         accepted.sort(key=lambda s: s.priority())
         kept_idx = deduplicate(
             [s.raw.text for s in accepted],
@@ -213,6 +266,15 @@ def build_paraphrase_set(
                 )
             )
         accepted = [accepted[i] for i in kept_idx]
+        # Diagnostic: per-batch dedup pass rate (against the accumulated pool).
+        if pre_dedup > 0:
+            logger.info(
+                "qid={} dedup pass={}/{} (kept after edit_dist >= {})",
+                question_id,
+                len(accepted),
+                pre_dedup,
+                pcfg.deduplication.min_edit_distance,
+            )
 
         pset.regeneration_attempts += 1
         logger.info(
@@ -255,6 +317,7 @@ def build_paraphrase_set(
                     question_text,
                     all_raw,
                     config,
+                    gold_answer=gold_answer,
                 )
             # Already at fallback threshold and still short: give up.
             pset.dropped = True
@@ -290,6 +353,8 @@ def _retry_with_relaxed(
     question_text: str,
     all_raw: Sequence[RawParaphrase],
     config: Config,
+    *,
+    gold_answer: str | None = None,
 ) -> ParaphraseSet:
     """Re-run filters at the fallback threshold on the cumulated raw candidates.
 
@@ -328,29 +393,58 @@ def _retry_with_relaxed(
             continue
         post_nli.append(_Scored(raw=raw, nli_fwd=scores.entail_fwd, nli_bwd=scores.entail_bwd, jaccard=math.nan))
 
-    cf_rows = filter_by_constraint(
-        question_text,
-        [s.raw.text for s in post_nli],
-        config=config,
-    )
     survivors: list[_Scored] = []
-    for s, (passed, j_res) in zip(post_nli, cf_rows, strict=True):
-        s.jaccard = j_res.jaccard
-        if not passed:
-            pset.rejected.append(
-                RejectedParaphrase(
-                    question_id=question_id,
-                    role=s.raw.role,
-                    sample_idx=s.raw.sample_idx,
-                    text=s.raw.text,
-                    reason="constraint_mismatch",
-                    nli_entail_fwd=s.nli_fwd,
-                    nli_entail_bwd=s.nli_bwd,
-                    constraint_jaccard=j_res.jaccard,
+    if gold_answer is not None:
+        bools = filter_by_constraint_with_gold(
+            [s.raw.text for s in post_nli],
+            gold_answer,
+            config=config,
+        )
+        for s, passed in zip(post_nli, bools, strict=True):
+            if not passed:
+                pset.rejected.append(
+                    RejectedParaphrase(
+                        question_id=question_id,
+                        role=s.raw.role,
+                        sample_idx=s.raw.sample_idx,
+                        text=s.raw.text,
+                        reason="constraint_mismatch",
+                        nli_entail_fwd=s.nli_fwd,
+                        nli_entail_bwd=s.nli_bwd,
+                    )
                 )
-            )
-            continue
-        survivors.append(s)
+                continue
+            survivors.append(s)
+    else:
+        cf_rows = filter_by_constraint(
+            question_text,
+            [s.raw.text for s in post_nli],
+            config=config,
+        )
+        for s, (passed, j_res) in zip(post_nli, cf_rows, strict=True):
+            s.jaccard = j_res.jaccard
+            if not passed:
+                pset.rejected.append(
+                    RejectedParaphrase(
+                        question_id=question_id,
+                        role=s.raw.role,
+                        sample_idx=s.raw.sample_idx,
+                        text=s.raw.text,
+                        reason="constraint_mismatch",
+                        nli_entail_fwd=s.nli_fwd,
+                        nli_entail_bwd=s.nli_bwd,
+                        constraint_jaccard=j_res.jaccard,
+                    )
+                )
+                continue
+            survivors.append(s)
+    logger.info(
+        "qid={} relaxed-retry constraint ({}): pass={}/{}",
+        question_id,
+        "gold" if gold_answer is not None else "jaccard",
+        len(survivors),
+        len(post_nli),
+    )
 
     survivors.sort(key=lambda s: s.priority())
     kept_idx = deduplicate(

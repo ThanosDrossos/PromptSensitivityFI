@@ -1,12 +1,29 @@
 """GPT-4.1-as-judge constraint-set filter.
 
 Section_7 §7.6.1 R1 second check: a paraphrase must preserve the *answer set*.
-We elicit the candidate-answer set for both the original and the paraphrase
-from the judge model and require Jaccard >= 0.9 between the two sets.
 
-The judge prompt is single-pass deterministic (T=0) and asks the judge to
-return JSON `{"answers": ["...", "..."]}`. We tolerate minor format drift
-(stripping ```json fences, lowercasing keys).
+Two filter modes:
+
+  - GOLD-BASED (preferred): the caller supplies the ground-truth answer from
+    the dataset (HotpotQA / 2Wiki `MultiHopQuestion.answer`). The judge is
+    asked once per candidate "does this paraphrase still have GOLD as a
+    correct answer?". Robust to surface-form drift, one judge call per
+    candidate, grounded in actual ground truth.
+
+  - JACCARD (fallback, brief's original spec): no gold answer available.
+    Elicit candidate-answer set for both the original and paraphrase
+    separately and require Jaccard >= 0.9. Fragile because two judge calls
+    can produce slightly different surface forms for the same semantic
+    answer (e.g. "private equity" vs "private equity firm" -> Jaccard=0).
+    The 2026-05-20 smoke run dropped 3/3 questions through this path.
+
+The gold-based mode was introduced after the smoke evidence in the
+2026-05-20 audit: NLI passes ~95% of candidates at threshold 0.9 but
+constraint+dedup drops them to 0-17/200. The judge-vs-judge symmetry was
+the bottleneck.
+
+The judge prompt is single-pass deterministic (T=0). We tolerate minor
+format drift (stripping ```json fences, lowercasing keys).
 """
 
 from __future__ import annotations
@@ -157,3 +174,118 @@ def filter_by_constraint(
         j = jaccard(a_set, b_set)
         out.append((j >= threshold, JaccardResult(jaccard=j, a_set=a_set, b_set=b_set)))
     return out
+
+
+# --------------------------------------------------------------------------- #
+# Gold-based filter (preferred when ground-truth answer is available)        #
+# --------------------------------------------------------------------------- #
+
+
+_GOLD_SYSTEM = (
+    "You are a precise question-analysis assistant. You will be given a "
+    "rephrased question and a known correct answer. Decide whether the "
+    "correct answer is STILL a valid answer to the rephrased question. "
+    "Output ONLY a JSON object of the form {\"valid\": true} or "
+    "{\"valid\": false}. No explanation, no markdown fences."
+)
+
+
+_GOLD_USER_TEMPLATE = (
+    "Rephrased question:\n{question}\n\n"
+    "Known correct answer: {answer}\n\n"
+    "Is the known correct answer still a valid answer to the rephrased question?"
+)
+
+
+def _gold_judge_request(
+    judge_model_key: str, paraphrase: str, gold_answer: str, config: Config
+) -> LLMRequest:
+    entry = config.models[judge_model_key]
+    return LLMRequest(
+        provider=entry.provider,  # type: ignore[arg-type]
+        model_id=entry.model_id,
+        messages=[
+            ChatMessage(role="system", content=_GOLD_SYSTEM),
+            ChatMessage(
+                role="user",
+                content=_GOLD_USER_TEMPLATE.format(
+                    question=paraphrase.strip(), answer=gold_answer.strip()
+                ),
+            ),
+        ],
+        temperature=0.0,
+        top_p=1.0,
+        max_tokens=64,            # tiny — just "true" / "false"
+        seed=42,
+        purpose="constraint_judge_gold",
+    )
+
+
+def _parse_valid_json(text: str) -> bool | None:
+    """Extract `valid: bool` from the judge response. None if unparseable."""
+    if not text:
+        return None
+    cleaned = text.strip()
+    fence = re.match(r"^```(?:json)?\s*(.*?)\s*```$", cleaned, re.DOTALL)
+    if fence:
+        cleaned = fence.group(1).strip()
+    if not cleaned.startswith("{"):
+        m = re.search(r"\{.*\}", cleaned, re.DOTALL)
+        if m:
+            cleaned = m.group(0)
+    try:
+        obj = json.loads(cleaned)
+    except json.JSONDecodeError:
+        # Tolerate the model returning a bare "yes"/"no" (not valid JSON).
+        low = cleaned.lower().strip()
+        if low in {"yes"}:
+            return True
+        if low in {"no"}:
+            return False
+        logger.warning("gold-judge parse failed: text={!r}", text[:120])
+        return None
+    # json.loads("true") returns the bool True directly.
+    if isinstance(obj, bool):
+        return obj
+    if not isinstance(obj, dict):
+        return None
+    val = obj.get("valid")
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        v = val.lower().strip()
+        if v == "true":
+            return True
+        if v == "false":
+            return False
+    return None
+
+
+def judge_contains_gold(
+    paraphrase: str,
+    gold_answer: str,
+    *,
+    config: Config | None = None,
+) -> bool:
+    """Single-call yes/no: is `gold_answer` still a valid answer to `paraphrase`?
+
+    Returns False on parse failure (conservative — better to drop a candidate
+    than to accept one we cannot evaluate).
+    """
+    if config is None:
+        config = load_config()
+    judge_key = config.paraphrases.constraint_filter.judge_model
+    client = get_client(judge_key, config)
+    resp = client.complete(_gold_judge_request(judge_key, paraphrase, gold_answer, config))
+    parsed = _parse_valid_json(resp.text)
+    return bool(parsed)
+
+
+def filter_by_constraint_with_gold(
+    candidates: Iterable[str],
+    gold_answer: str,
+    *,
+    config: Config | None = None,
+) -> list[bool]:
+    """Apply the gold-based filter to a batch of candidates. Returns parallel list of bools."""
+    return [judge_contains_gold(c, gold_answer, config=config) for c in candidates]

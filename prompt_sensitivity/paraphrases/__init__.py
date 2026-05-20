@@ -15,6 +15,11 @@ Output: exactly 30 paraphrases per question (config.paraphrases.n_per_question).
 
 from .schemas import RawParaphrase, AcceptedParaphrase, ParaphraseSet
 from .prompts import build_paraphrase_messages, ROLE_NAMES
+from .constraint_filter import (
+    judge_contains_gold,
+    filter_by_constraint_with_gold,
+    filter_by_constraint,
+)
 
 __all__ = [
     "RawParaphrase",
@@ -22,4 +27,7 @@ __all__ = [
     "ParaphraseSet",
     "build_paraphrase_messages",
     "ROLE_NAMES",
+    "judge_contains_gold",
+    "filter_by_constraint_with_gold",
+    "filter_by_constraint",
 ]
