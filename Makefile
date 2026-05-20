@@ -3,7 +3,7 @@
 
 .PHONY: install test lint sample sprint1-verify list-models clean \
         paraphrases paraphrases-smoke export-annotation compute-kappa \
-        diagnose-paraphrases build-ladders smoke-metrics
+        diagnose-paraphrases build-ladders smoke-metrics e2e-smoke
 
 install:
 	uv sync --all-extras
@@ -66,6 +66,17 @@ diagnose-paraphrases:
 #       Sprint-4 gate: must return a plausible 11-scalar MetricTuple.
 smoke-metrics:
 	uv run python -m prompt_sensitivity.scripts.smoke_metrics
+
+# Cross-sprint E2E smoke: reads cached paraphrases for N questions, builds
+# ladders on demand, runs the full metric pipeline against the gateway.
+# Defaults: 5 q, 1 model (gpt_4o = kit.gpt-4.1), random ladder, levels {0,4,10},
+# k=3 H_sem samples, max 10 paraphrases per question. ~$0.30 + ~15 min.
+# Override knobs by calling the module directly with --flags (see --help).
+e2e-smoke:
+	uv run python -m prompt_sensitivity.scripts.e2e_smoke
+
+e2e-smoke-dry:
+	uv run python -m prompt_sensitivity.scripts.e2e_smoke --dry-run
 
 # Convenience target: run all Sprint-1 deliverables that don't need API keys.
 sprint1-no-api: install test data-download sample
