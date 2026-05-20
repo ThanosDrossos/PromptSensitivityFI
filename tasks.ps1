@@ -10,6 +10,7 @@ param(
         "api-check", "list-models", "data-download", "sample",
         "paraphrases", "paraphrases-smoke", "export-annotation", "compute-kappa",
         "diagnose-paraphrases", "build-ladders", "smoke-metrics",
+        "e2e-smoke", "e2e-smoke-dry",
         "sprint1-no-api", "sprint1-verify",
         "clean"
     )]
@@ -52,6 +53,11 @@ switch ($Target) {
     "diagnose-paraphrases" { Run-Module "prompt_sensitivity.scripts.diagnose_paraphrases" }
     "build-ladders"    { Run-Module "prompt_sensitivity.scripts.build_ladders" }
     "smoke-metrics"    { Run-Module "prompt_sensitivity.scripts.smoke_metrics" }
+    "e2e-smoke"        { Run-Module "prompt_sensitivity.scripts.e2e_smoke" }
+    "e2e-smoke-dry" {
+        uv run python -m prompt_sensitivity.scripts.e2e_smoke --dry-run
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
     "sprint1-no-api" {
         Run-UvSync; Run-Pytest
         Run-Module "prompt_sensitivity.scripts.download_datasets"
