@@ -47,6 +47,17 @@ paraphrases:
     # answer-variant lists.
     judge_max_tokens: 1024
   deduplication:
+    # Distance metric for dedup. See `paraphrases/deduplicate.py` docstring.
+    #   "char"  — character-level Levenshtein (brief's default; min=6 means
+    #              the brief's "edit distance > 5"). Recommended for long
+    #              questions (>100 chars).
+    #   "token" — whitespace-tokenised word-level. Recommended min=3 (>=3
+    #              word swaps). Switch to this if a sizable fraction of the
+    #              sample has short questions (~80 chars / ~12 tokens) where
+    #              char-level over-rejects: the 2026-05-21 smoke showed
+    #              q2/q3 (port-city / Wilmslow-school questions) drop 350+
+    #              candidates per attempt under char mode.
+    metric: char
     min_edit_distance: 6
 
 # §5 — models reached through the KIT/DSI LiteLLM gateway.

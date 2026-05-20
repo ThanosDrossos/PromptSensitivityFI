@@ -31,7 +31,7 @@ from loguru import logger
 
 from ..config import Config, load_config
 from .constraint_filter import filter_by_constraint, filter_by_constraint_with_gold
-from .deduplicate import deduplicate
+from .deduplicate import deduplicate, levenshtein, levenshtein_tokens
 from .generate import generate_raw_paraphrases
 from .nli_filter import filter_by_nli
 from .schemas import (
@@ -249,18 +249,32 @@ def build_paraphrase_set(
         kept_idx = deduplicate(
             [s.raw.text for s in accepted],
             min_distance=pcfg.deduplication.min_edit_distance,
+            metric=pcfg.deduplication.metric,  # type: ignore[arg-type]
         )
         kept_set = set(kept_idx)
+        kept_texts = [accepted[i].raw.text for i in kept_idx]
+        distance_fn = levenshtein if pcfg.deduplication.metric == "char" else levenshtein_tokens
+        n_exact_dup = 0
         for i, s in enumerate(accepted):
             if i in kept_set:
                 continue
+            # Sub-classify: exact_duplicate (distance 0 to some kept) vs
+            # edit_distance_close (small but nonzero distance). Operationally
+            # both come from the same dedup step, but the breakdown tells the
+            # user whether the bottleneck is generator non-diversity
+            # (many distance-0 hits) or the threshold being too strict
+            # (many small-but-nonzero hits).
+            min_d = min((distance_fn(s.raw.text, k) for k in kept_texts), default=10**9)
+            reason: str = "exact_duplicate" if min_d == 0 else "edit_distance_close"
+            if min_d == 0:
+                n_exact_dup += 1
             pset.rejected.append(
                 RejectedParaphrase(
                     question_id=question_id,
                     role=s.raw.role,
                     sample_idx=s.raw.sample_idx,
                     text=s.raw.text,
-                    reason="edit_distance_close",
+                    reason=reason,  # type: ignore[arg-type]
                     nli_entail_fwd=s.nli_fwd,
                     nli_entail_bwd=s.nli_bwd,
                     constraint_jaccard=s.jaccard,
@@ -269,12 +283,15 @@ def build_paraphrase_set(
         accepted = [accepted[i] for i in kept_idx]
         # Diagnostic: per-batch dedup pass rate (against the accumulated pool).
         if pre_dedup > 0:
+            n_dropped = pre_dedup - len(accepted)
             logger.info(
-                "qid={} dedup pass={}/{} (kept after edit_dist >= {})",
+                "qid={} dedup pass={}/{} (kept after edit_dist >= {}); exact_dup={}/{} of drops",
                 question_id,
                 len(accepted),
                 pre_dedup,
                 pcfg.deduplication.min_edit_distance,
+                n_exact_dup,
+                n_dropped if n_dropped > 0 else 0,
             )
 
         pset.regeneration_attempts += 1
@@ -452,18 +469,23 @@ def _retry_with_relaxed(
     kept_idx = deduplicate(
         [s.raw.text for s in survivors],
         min_distance=pcfg.deduplication.min_edit_distance,
+        metric=pcfg.deduplication.metric,  # type: ignore[arg-type]
     )
     kept_set = set(kept_idx)
+    kept_texts = [survivors[i].raw.text for i in kept_idx]
+    distance_fn = levenshtein if pcfg.deduplication.metric == "char" else levenshtein_tokens
     for i, s in enumerate(survivors):
         if i in kept_set:
             continue
+        min_d = min((distance_fn(s.raw.text, k) for k in kept_texts), default=10**9)
+        reason: str = "exact_duplicate" if min_d == 0 else "edit_distance_close"
         pset.rejected.append(
             RejectedParaphrase(
                 question_id=question_id,
                 role=s.raw.role,
                 sample_idx=s.raw.sample_idx,
                 text=s.raw.text,
-                reason="edit_distance_close",
+                reason=reason,  # type: ignore[arg-type]
                 nli_entail_fwd=s.nli_fwd,
                 nli_entail_bwd=s.nli_bwd,
                 constraint_jaccard=s.jaccard,
