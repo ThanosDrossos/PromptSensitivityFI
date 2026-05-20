@@ -163,3 +163,39 @@ The κ gate is the real arbiter: Cohen's κ across annotated samples
 determines whether the chosen threshold is calibrated. If κ < 0.8 after the
 manual round, tighten the threshold and regenerate (which is, again,
 cache-cheap on the generator side).
+
+### Troubleshooting Sprint 2 — dedup dropping too many paraphrases
+
+If `diagnose-paraphrases` shows the bottleneck is `edit_distance_close` or
+`exact_duplicate` (rather than `constraint_mismatch` or `nli_*`), the
+generator is converging — different `(role, sample_idx)` seeds keep
+producing the same or near-identical text. This is most common for short
+factoid questions (~80 chars / ~12 tokens).
+
+The 2026-05-21 smoke run on three questions found:
+
+| qid | accepted | exact_dup of accepted | near_dup (char<6 AND token<3) |
+|---|---|---|---|
+| q1 (long) | 30/30 ✓ | low | low |
+| q2 (short) | 19/30 | 166/352 (47%) | 186/352 (53%) |
+| q3 (short) | 28/30 | similar | similar |
+
+Important empirical finding: **switching dedup `metric` from `char` to
+`token` would NOT have saved q2** — every near-duplicate also fails the
+3-token-edit threshold. The real fix is generator-side. Three knobs:
+
+1. **`paraphrases.samples_per_template`** in `config.yaml`. Default 10 →
+   try 15 or 20. Caches the previous samples, so a re-run only generates
+   the new sample slots. Most effective lever.
+2. **`paraphrases.generator_temperature`** — 0.8 default; can try 1.0 for
+   more diversity (risks more semantic drift; NLI filter catches that).
+3. **`deduplication.metric: "token"`** with `min_edit_distance: 3` — the
+   token mode is in the codebase and tested, but the smoke evidence says
+   it won't materially help; included for completeness.
+
+The brief explicitly anticipated this with drop-and-replace: short
+questions with limited paraphrase space get dropped and replaced from the
+sample pool. The new `exact_duplicate` reason label (vs the old umbrella
+`edit_distance_close`) lets `diagnose-paraphrases` show you which
+questions are generator-bound vs threshold-bound, so you can decide
+between "increase samples" and "drop and replace".

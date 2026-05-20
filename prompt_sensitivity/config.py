@@ -58,6 +58,7 @@ class ConstraintFilterConfig(_Frozen):
 
 class DedupConfig(_Frozen):
     min_edit_distance: int
+    metric: str = "char"          # "char" | "token"
 
 
 class ParaphraseConfig(_Frozen):
