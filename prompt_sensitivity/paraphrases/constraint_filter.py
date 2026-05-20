@@ -182,23 +182,37 @@ def filter_by_constraint(
 
 
 _GOLD_SYSTEM = (
-    "You are a precise question-analysis assistant. You will be given a "
-    "rephrased question and a known correct answer. Decide whether the "
-    "correct answer is STILL a valid answer to the rephrased question. "
-    "Output ONLY a JSON object of the form {\"valid\": true} or "
-    "{\"valid\": false}. No explanation, no markdown fences."
+    "You decide if a question rewriting preserves the original answer.\n\n"
+    "You receive: (1) the original question, (2) the known correct "
+    "answer to that original question, (3) a rewritten version of the "
+    "question.\n\n"
+    "Return true iff the known correct answer is still a reasonable, "
+    "valid answer to the rewritten version. Be GENEROUS about minor "
+    "wording shifts: synonyms, register changes (formal vs casual), "
+    "added or removed determiners, slight rephrasing of the same fact "
+    "-- all of these should pass. Only return false if the rewritten "
+    "question is genuinely asking for a DIFFERENT FACT (e.g. a "
+    "different entity, different date, different relationship type, "
+    "or a meaningfully different aspect of the same entity).\n\n"
+    "Output ONLY a JSON object: {\"valid\": true} or {\"valid\": false}. "
+    "No explanation, no markdown fences."
 )
 
 
 _GOLD_USER_TEMPLATE = (
-    "Rephrased question:\n{question}\n\n"
+    "Original question:\n{original}\n\n"
     "Known correct answer: {answer}\n\n"
-    "Is the known correct answer still a valid answer to the rephrased question?"
+    "Rewritten version:\n{paraphrase}\n\n"
+    "Is the known correct answer still a reasonable, valid answer to the rewritten version?"
 )
 
 
 def _gold_judge_request(
-    judge_model_key: str, paraphrase: str, gold_answer: str, config: Config
+    judge_model_key: str,
+    paraphrase: str,
+    gold_answer: str,
+    original_question: str,
+    config: Config,
 ) -> LLMRequest:
     entry = config.models[judge_model_key]
     return LLMRequest(
@@ -209,7 +223,9 @@ def _gold_judge_request(
             ChatMessage(
                 role="user",
                 content=_GOLD_USER_TEMPLATE.format(
-                    question=paraphrase.strip(), answer=gold_answer.strip()
+                    original=original_question.strip(),
+                    answer=gold_answer.strip(),
+                    paraphrase=paraphrase.strip(),
                 ),
             ),
         ],
@@ -217,7 +233,7 @@ def _gold_judge_request(
         top_p=1.0,
         max_tokens=64,            # tiny — just "true" / "false"
         seed=42,
-        purpose="constraint_judge_gold",
+        purpose="constraint_judge_gold_v2",   # bump so v1 cache entries don't shadow
     )
 
 
@@ -265,18 +281,27 @@ def judge_contains_gold(
     paraphrase: str,
     gold_answer: str,
     *,
+    original_question: str,
     config: Config | None = None,
 ) -> bool:
     """Single-call yes/no: is `gold_answer` still a valid answer to `paraphrase`?
 
-    Returns False on parse failure (conservative — better to drop a candidate
-    than to accept one we cannot evaluate).
+    The judge is given the original question, the gold answer, and the
+    rephrasing. Including the original is critical: without it the judge
+    has to guess whether a wording shift was the original's wording or a
+    real semantic change, and tends to over-reject (2026-05-20 smoke run
+    showed 10-15% gold pass without original; ~50% with original).
+
+    Returns False on parse failure (conservative — better to drop a
+    candidate than to accept one we cannot evaluate).
     """
     if config is None:
         config = load_config()
     judge_key = config.paraphrases.constraint_filter.judge_model
     client = get_client(judge_key, config)
-    resp = client.complete(_gold_judge_request(judge_key, paraphrase, gold_answer, config))
+    resp = client.complete(
+        _gold_judge_request(judge_key, paraphrase, gold_answer, original_question, config)
+    )
     parsed = _parse_valid_json(resp.text)
     return bool(parsed)
 
@@ -285,7 +310,13 @@ def filter_by_constraint_with_gold(
     candidates: Iterable[str],
     gold_answer: str,
     *,
+    original_question: str,
     config: Config | None = None,
 ) -> list[bool]:
     """Apply the gold-based filter to a batch of candidates. Returns parallel list of bools."""
-    return [judge_contains_gold(c, gold_answer, config=config) for c in candidates]
+    return [
+        judge_contains_gold(
+            c, gold_answer, original_question=original_question, config=config
+        )
+        for c in candidates
+    ]

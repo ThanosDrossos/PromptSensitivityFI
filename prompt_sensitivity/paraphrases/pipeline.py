@@ -188,6 +188,7 @@ def build_paraphrase_set(
                 bools = filter_by_constraint_with_gold(
                     [s.raw.text for s in post_nli],
                     gold_answer,
+                    original_question=question_text,
                     config=config,
                 )
                 for s, passed in zip(post_nli, bools, strict=True):
@@ -398,6 +399,7 @@ def _retry_with_relaxed(
         bools = filter_by_constraint_with_gold(
             [s.raw.text for s in post_nli],
             gold_answer,
+            original_question=question_text,
             config=config,
         )
         for s, passed in zip(post_nli, bools, strict=True):

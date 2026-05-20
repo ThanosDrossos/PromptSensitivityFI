@@ -164,7 +164,7 @@ def test_gold_answer_routes_to_gold_filter(monkeypatch):
     gold_calls: list[list[str]] = []
     jaccard_calls: list[list[str]] = []
 
-    def fake_gold_filter(candidates, gold, *, config=None):
+    def fake_gold_filter(candidates, gold, *, original_question=None, config=None):
         gold_calls.append(list(candidates))
         return [True] * len(list(candidates))  # all pass
 
@@ -200,7 +200,7 @@ def test_no_gold_answer_falls_back_to_jaccard(monkeypatch):
     gold_calls: list[list[str]] = []
     jaccard_calls: list[list[str]] = []
 
-    def fake_gold_filter(candidates, gold, *, config=None):
+    def fake_gold_filter(candidates, gold, *, original_question=None, config=None):
         gold_calls.append(list(candidates))
         return [True] * len(list(candidates))
 
