@@ -444,6 +444,12 @@ def main() -> int:
     print(out_df[cols].to_string(index=False, float_format=lambda x: f"{x:.3f}"))
 
     # Sanity assertions.
+    #
+    # ESS_in is allowed to be ~0 when using the external mpnet encoder with
+    # context-heavy prompts: mpnet is trained to map paraphrases to nearby
+    # points, so per-feature variance collapses by design. The own-encoder
+    # variant from Sprint 6 (vLLM hidden states) will not have this property.
+    # See metrics/ess_in.py docstring.
     bad = []
     for _, row in out_df.iterrows():
         if row["n_paraphrases"] < 2:
@@ -458,6 +464,20 @@ def main() -> int:
         logger.warning("plausibility issues in {} fields", len(bad))
         for line in bad[:10]:
             logger.warning("  {}", line)
+
+    # Coarse summary that tells you whether the pipeline produced a sensible
+    # context-amount curve, separate from the numeric MetricTuple dump.
+    # F(x) pass-rates per level, averaged across questions:
+    levels_summary: dict[int, list[float]] = {}
+    for _, row in out_df.iterrows():
+        levels_summary.setdefault(int(row["level"]), []).append(float(row.get("aufi_in") or 0.0))
+    print()
+    print("=" * 96)
+    print("CONTEXT-AMOUNT TREND (mean AUFI_in by level — lower = paraphrases more uniformly pass)")
+    print("=" * 96)
+    for level in sorted(levels_summary):
+        vals = levels_summary[level]
+        print(f"  L={level:>2}  mean AUFI_in = {sum(vals) / len(vals):.3f}  ({len(vals)} cells)")
 
     print()
     print(json.dumps({
