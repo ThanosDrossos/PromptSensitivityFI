@@ -182,16 +182,25 @@ The 2026-05-21 smoke run on three questions found:
 
 Important empirical finding: **switching dedup `metric` from `char` to
 `token` would NOT have saved q2** — every near-duplicate also fails the
-3-token-edit threshold. The real fix is generator-side. Three knobs:
+3-token-edit threshold. The real fix is generator-side.
 
-1. **`paraphrases.samples_per_template`** in `config.yaml`. Default 10 →
-   try 15 or 20. Caches the previous samples, so a re-run only generates
-   the new sample slots. Most effective lever.
-2. **`paraphrases.generator_temperature`** — 0.8 default; can try 1.0 for
+The right lever is `paraphrases.max_regeneration_attempts` — despite the
+name, this is the **cap on total raw samples generated per template**.
+With the default of 50, four templates produce up to 200 raw candidates
+per question total. Bumping `samples_per_template` from 10 → 15 alone
+does NOT help, because the per-template cap is the same; you just take
+fewer larger steps to hit it. Bump `max_regeneration_attempts` to 100
+(or 150) to actually widen the raw pool. Cached sample_idxs from previous
+runs still hit the cache; only the new slots cost money.
+
+The other (less effective) levers:
+
+- **`paraphrases.generator_temperature`** — 0.8 default; can try 1.0 for
    more diversity (risks more semantic drift; NLI filter catches that).
-3. **`deduplication.metric: "token"`** with `min_edit_distance: 3` — the
-   token mode is in the codebase and tested, but the smoke evidence says
-   it won't materially help; included for completeness.
+- **`deduplication.metric: "token"`** with `min_edit_distance: 3` — the
+   token mode is in the codebase and tested, but the 2026-05-21 smoke
+   showed every char-rejected candidate also fails the 3-token threshold,
+   so this won't help in practice; included for completeness.
 
 The brief explicitly anticipated this with drop-and-replace: short
 questions with limited paraphrase space get dropped and replaced from the
