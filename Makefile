@@ -3,7 +3,8 @@
 
 .PHONY: install test lint sample sprint1-verify list-models clean \
         paraphrases paraphrases-smoke export-annotation compute-kappa \
-        diagnose-paraphrases build-ladders smoke-metrics e2e-smoke
+        diagnose-paraphrases build-ladders smoke-metrics e2e-smoke \
+        pilot plot-pilot
 
 install:
 	uv sync --all-extras
@@ -77,6 +78,30 @@ e2e-smoke:
 
 e2e-smoke-dry:
 	uv run python -m prompt_sensitivity.scripts.e2e_smoke --dry-run
+
+# --- Pilot for supervisor presentation ---
+
+# Full three-ladder × three-level pilot on whatever questions have cached
+# paraphrases. Uses k=3 H_sem samples + max 8 paraphrases per question for
+# speed (each cell ~5 min on CPU). Output to data/pilot_metrics.parquet.
+# Cost on the 3-question smoke cache: ~$0.50, ~2-3 hours overnight.
+pilot:
+	uv run python -m prompt_sensitivity.scripts.e2e_smoke \
+		--ladders "random,gold_first,distractor_first" \
+		--levels "0,4,10" \
+		--models gpt_4o \
+		--k-samples 3 \
+		--max-paraphrases 8 \
+		--out data/pilot_metrics.parquet
+
+# Read data/e2e_metrics.parquet (default) or data/pilot_metrics.parquet
+# and generate plots + REPORT.md under data/plots/.
+plot-pilot:
+	uv run python -m prompt_sensitivity.scripts.plot_pilot --in data/pilot_metrics.parquet --out data/plots
+
+# Same plot path but on the e2e_smoke 9-cell output (already on disk).
+plot-smoke:
+	uv run python -m prompt_sensitivity.scripts.plot_pilot --in data/e2e_metrics.parquet --out data/plots_smoke
 
 # Convenience target: run all Sprint-1 deliverables that don't need API keys.
 sprint1-no-api: install test data-download sample

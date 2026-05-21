@@ -50,6 +50,12 @@ class MetricTuple(BaseModel):
     level: int
     model_key: str
 
+    # Raw accuracy — mean F(x) across paraphrases. Not in §3 reporting tuple
+    # but materially useful for plots and supervisor presentation: the FI_in
+    # metric is meaningful only relative to a baseline F-rate, so we record
+    # the rate explicitly rather than reading it back from AUFI_in.
+    f_mean: float | None = None         # in [0, 1]; mean of F(x) over paraphrases
+
     # Tier A — primary novel contribution
     aufi_in: float | None = None        # area under FI_in(k) curve, k in [0,1]
     fi_out_mean: float | None = None    # mean FI_out across paraphrases
