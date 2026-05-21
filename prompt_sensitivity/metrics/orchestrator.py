@@ -112,6 +112,10 @@ def build_metric_tuple(
     # AUFI_in over k in [0, 1].
     aufi = aufi_in_from_scores(scores)
 
+    # Mean F-score (raw accuracy). Useful for plots; AUFI_in is the integral
+    # so the raw rate is recoverable but inconvenient.
+    f_mean_val: float | None = float(np.mean(scores)) if scores else None
+
     # ESS_in on the (N, D) prompt-embedding matrix.
     ess_val = ess_in_fn(prompt_embeddings) if prompt_embeddings.size else None
 
@@ -137,6 +141,7 @@ def build_metric_tuple(
         ladder_type=ladder_type,
         level=level,
         model_key=model_key,
+        f_mean=f_mean_val,
         aufi_in=aufi,
         fi_out_mean=fi_out_mean,
         s_tau_mean=s_tau_mean,

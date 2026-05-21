@@ -11,6 +11,7 @@ param(
         "paraphrases", "paraphrases-smoke", "export-annotation", "compute-kappa",
         "diagnose-paraphrases", "build-ladders", "smoke-metrics",
         "e2e-smoke", "e2e-smoke-dry",
+        "pilot", "plot-pilot", "plot-smoke",
         "sprint1-no-api", "sprint1-verify",
         "clean"
     )]
@@ -56,6 +57,26 @@ switch ($Target) {
     "e2e-smoke"        { Run-Module "prompt_sensitivity.scripts.e2e_smoke" }
     "e2e-smoke-dry" {
         uv run python -m prompt_sensitivity.scripts.e2e_smoke --dry-run
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
+    "pilot" {
+        uv run python -m prompt_sensitivity.scripts.e2e_smoke `
+            --ladders "random,gold_first,distractor_first" `
+            --levels "0,4,10" `
+            --models gpt_4o `
+            --k-samples 3 `
+            --max-paraphrases 8 `
+            --out data/pilot_metrics.parquet
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
+    "plot-pilot" {
+        uv run python -m prompt_sensitivity.scripts.plot_pilot `
+            --in data/pilot_metrics.parquet --out data/plots
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
+    "plot-smoke" {
+        uv run python -m prompt_sensitivity.scripts.plot_pilot `
+            --in data/e2e_metrics.parquet --out data/plots_smoke
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
     "sprint1-no-api" {

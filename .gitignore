@@ -19,4 +19,6 @@ data/*.csv
 # Smoke / scratch outputs that we don't want in git but the pipeline writes there.
 data/paraphrases_smoke.parquet
 data/annotation_sample_v1.csv
+data/plots/
+data/plots_smoke/
 .DS_Store

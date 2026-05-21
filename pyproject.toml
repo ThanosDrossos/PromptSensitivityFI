@@ -21,6 +21,8 @@ dependencies = [
   # (same protocol, just a different base_url). No direct OpenAI account needed.
   "openai>=1.50",
   "tqdm>=4.66",
+  # Plotting for the pilot/supervisor demo (matplotlib + seaborn-lite usage).
+  "matplotlib>=3.8",
   # NLI filter (Sprint 2) and metrics (Sprint 4) need these from day one.
   # Previously gated under `[metrics]` extras — moved to core because the
   # pipeline can't run without them and the optional-extras gate was a

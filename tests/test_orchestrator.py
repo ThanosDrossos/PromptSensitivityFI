@@ -8,6 +8,31 @@ from prompt_sensitivity.metrics import build_metric_tuple
 from prompt_sensitivity.metrics.schemas import MetricTuple
 
 
+def test_build_tuple_sets_f_mean_correctly():
+    """f_mean must equal sum(scores) / len(scores) — used by plot scripts."""
+    import numpy as np
+
+    rng = np.random.default_rng(0)
+    scores = [1.0, 1.0, 0.0, 0.0, 1.0]   # 3/5 = 0.6
+    cluster_assignments = {i: [0, 0, 0, 1] for i in range(5)}
+    prompt_emb = rng.normal(size=(5, 8))
+    response_emb = {i: rng.normal(size=(4, 8)) for i in range(5)}
+
+    tup = build_metric_tuple(
+        question_id="t_f_mean",
+        ladder_type="random",
+        level=4,
+        model_key="llama_3_1_8b",
+        scores=scores,
+        cluster_assignments=cluster_assignments,
+        prompt_embeddings=prompt_emb,
+        response_embeddings=response_emb,
+        posix_log_p=None,
+        posix_lengths=None,
+    )
+    assert tup.f_mean == 0.6
+
+
 def test_build_tuple_returns_metric_tuple_with_all_scalars():
     rng = np.random.default_rng(0)
     n = 5
