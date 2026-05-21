@@ -105,72 +105,90 @@ def _plot_metric_per_question(
     out_path: Path,
     ylim: tuple[float, float] | None = None,
 ) -> None:
-    """Lineplot: one panel per question + one aggregated panel; lines per ladder.
+    """Lineplot: per-question + aggregated panels; lines per ladder.
+
+    Multi-model handling:
+      - 1 model: single row of panels (questions + aggregate). Cleaner for
+        the 9-cell smoke and any single-model run.
+      - N>1 models: N rows × (questions+1) cols. Each row is one model;
+        each panel within a row still has 3 lines (one per ladder).
+        Direct visual comparison between models.
 
     Works for any single-scalar MetricTuple column. Used for f_mean, aufi_in,
     h_sem_mean — each tells the same story shape but on a different y-axis.
     """
     questions = sorted(df["question_id"].unique())
+    models = sorted(df["model_key"].unique())
     n_q = len(questions)
-    if n_q == 0:
-        logger.warning("no questions to plot for {}", metric)
+    n_m = len(models)
+    if n_q == 0 or n_m == 0:
+        logger.warning("no data to plot for {}", metric)
         return
 
-    n_cols = min(3, n_q + 1)
-    n_rows = math.ceil((n_q + 1) / n_cols)
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows), squeeze=False)
-    axes_flat = axes.flatten()
+    n_cols = n_q + 1            # one per question + aggregate
+    n_rows = n_m                # one per model
+    fig, axes = plt.subplots(
+        n_rows, n_cols,
+        figsize=(4.2 * n_cols, 3.6 * n_rows),
+        squeeze=False,
+    )
 
-    # One panel per question.
-    for ax, qid in zip(axes_flat, questions, strict=False):
-        sub = df[df["question_id"] == qid]
+    for r, model in enumerate(models):
+        model_df = df[df["model_key"] == model]
+        # Per-question panels for this model.
+        for c, qid in enumerate(questions):
+            ax = axes[r, c]
+            sub = model_df[model_df["question_id"] == qid]
+            for ladder in _LADDER_ORDER:
+                row = sub[sub["ladder_type"] == ladder].sort_values("level")
+                if row.empty:
+                    continue
+                ax.plot(
+                    row["level"],
+                    row[metric],
+                    marker="o",
+                    color=_LADDER_COLOURS[ladder],
+                    label=ladder if (r == 0 and c == 0) else None,
+                    linewidth=2,
+                )
+            prefix = f"{model} | " if n_m > 1 else ""
+            ax.set_title(f"{prefix}qid={qid[:18]}...", fontsize=10)
+            ax.set_xlabel("context level (#paragraphs)")
+            ax.set_ylabel(ylabel)
+            ax.grid(True, alpha=0.3)
+            if ylim is not None:
+                ax.set_ylim(*ylim)
+
+        # Aggregate panel for this model.
+        agg_ax = axes[r, n_q]
+        grouped = (
+            model_df.groupby(["ladder_type", "level"])[metric]
+            .mean()
+            .reset_index()
+        )
         for ladder in _LADDER_ORDER:
-            row = sub[sub["ladder_type"] == ladder].sort_values("level")
+            row = grouped[grouped["ladder_type"] == ladder].sort_values("level")
             if row.empty:
                 continue
-            ax.plot(
+            agg_ax.plot(
                 row["level"],
                 row[metric],
-                marker="o",
+                marker="s",
                 color=_LADDER_COLOURS[ladder],
-                label=ladder if ax is axes_flat[0] else None,
-                linewidth=2,
+                label=ladder if r == 0 else None,
+                linewidth=2.5,
             )
-        ax.set_title(f"qid={qid[:18]}...", fontsize=10)
-        ax.set_xlabel("context level (#paragraphs)")
-        ax.set_ylabel(ylabel)
-        ax.grid(True, alpha=0.3)
-        if ylim is not None:
-            ax.set_ylim(*ylim)
-
-    # Aggregated panel — mean across questions.
-    agg_ax = axes_flat[n_q]
-    grouped = (
-        df.groupby(["ladder_type", "level"])[metric].mean().reset_index()
-    )
-    for ladder in _LADDER_ORDER:
-        row = grouped[grouped["ladder_type"] == ladder].sort_values("level")
-        if row.empty:
-            continue
-        agg_ax.plot(
-            row["level"],
-            row[metric],
-            marker="s",
-            color=_LADDER_COLOURS[ladder],
-            label=ladder,
-            linewidth=2.5,
+        prefix = f"{model} | " if n_m > 1 else ""
+        agg_ax.set_title(
+            f"{prefix}AGGREGATE (mean across {n_q} q)", fontsize=10, fontweight="bold"
         )
-    agg_ax.set_title(f"AGGREGATE (mean across {n_q} questions)", fontsize=10, fontweight="bold")
-    agg_ax.set_xlabel("context level (#paragraphs)")
-    agg_ax.set_ylabel(ylabel)
-    agg_ax.grid(True, alpha=0.3)
-    if ylim is not None:
-        agg_ax.set_ylim(*ylim)
-    agg_ax.legend(loc="best", fontsize=9)
-
-    # Hide any unused subplot slots.
-    for ax in axes_flat[n_q + 1 :]:
-        ax.set_visible(False)
+        agg_ax.set_xlabel("context level (#paragraphs)")
+        agg_ax.set_ylabel(ylabel)
+        agg_ax.grid(True, alpha=0.3)
+        if ylim is not None:
+            agg_ax.set_ylim(*ylim)
+        if r == 0:
+            agg_ax.legend(loc="best", fontsize=9)
 
     fig.suptitle(title, fontsize=13, fontweight="bold")
     fig.tight_layout(rect=(0, 0, 1, 0.96))
@@ -183,48 +201,154 @@ def _plot_three_ladder_envelope(df: pd.DataFrame, out_path: Path) -> None:
     """At each level, bar chart per question with three bars (the ladders).
 
     Visualises V3 bound consistency: gold_first ≥ random ≥ distractor_first.
+
+    Multi-model: facet by model (rows = models, cols = questions). Each cell
+    has bars-per-ladder × levels-on-x.
     """
     questions = sorted(df["question_id"].unique())
-    levels = sorted(df["level"].unique())
+    models = sorted(df["model_key"].unique())
+    levels = sorted(int(x) for x in df["level"].unique())
     n_q = len(questions)
+    n_m = len(models)
     n_l = len(levels)
-    if n_q == 0 or n_l == 0:
+    if n_q == 0 or n_l == 0 or n_m == 0:
         logger.warning("no data for three-ladder plot")
         return
 
-    fig, axes = plt.subplots(n_q, 1, figsize=(max(8, 1.5 * n_l), 3.5 * n_q), squeeze=False)
-    axes_flat = axes.flatten()
+    n_rows = n_m
+    n_cols = n_q
+    fig, axes = plt.subplots(
+        n_rows, n_cols,
+        figsize=(max(6, 1.8 * n_l) * n_cols / max(n_cols, 1), 3.5 * n_rows),
+        squeeze=False,
+    )
 
     bar_width = 0.25
-    for ax, qid in zip(axes_flat, questions, strict=False):
-        sub = df[df["question_id"] == qid]
-        x = np.arange(n_l)
-        for i, ladder in enumerate(_LADDER_ORDER):
-            vals: list[float] = []
-            for lvl in levels:
-                row = sub[(sub["ladder_type"] == ladder) & (sub["level"] == lvl)]
-                vals.append(float(row["f_mean"].iloc[0]) if not row.empty else float("nan"))
-            ax.bar(
-                x + (i - 1) * bar_width,
-                vals,
-                bar_width,
-                label=ladder,
-                color=_LADDER_COLOURS[ladder],
-            )
-        ax.set_xticks(x)
-        ax.set_xticklabels([f"L={lvl}" for lvl in levels])
-        ax.set_ylim(0, 1.05)
-        ax.set_ylabel("F-mean (accuracy)")
-        ax.set_title(f"qid={qid[:18]}... — three-ladder F-mean per level")
-        ax.grid(True, alpha=0.3, axis="y")
-        if ax is axes_flat[0]:
-            ax.legend(loc="upper left", fontsize=9)
+    for r, model in enumerate(models):
+        for c, qid in enumerate(questions):
+            ax = axes[r, c]
+            sub = df[(df["question_id"] == qid) & (df["model_key"] == model)]
+            x = np.arange(n_l)
+            for i, ladder in enumerate(_LADDER_ORDER):
+                vals: list[float] = []
+                for lvl in levels:
+                    row = sub[(sub["ladder_type"] == ladder) & (sub["level"] == lvl)]
+                    vals.append(float(row["f_mean"].iloc[0]) if not row.empty else float("nan"))
+                ax.bar(
+                    x + (i - 1) * bar_width,
+                    vals,
+                    bar_width,
+                    label=ladder if (r == 0 and c == 0) else None,
+                    color=_LADDER_COLOURS[ladder],
+                )
+            ax.set_xticks(x)
+            ax.set_xticklabels([f"L={lvl}" for lvl in levels])
+            ax.set_ylim(0, 1.05)
+            ax.set_ylabel("F-mean (accuracy)" if c == 0 else "")
+            prefix = f"{model} | " if n_m > 1 else ""
+            ax.set_title(f"{prefix}qid={qid[:18]}...", fontsize=9)
+            ax.grid(True, alpha=0.3, axis="y")
+            if r == 0 and c == 0:
+                ax.legend(loc="upper left", fontsize=8)
 
     fig.suptitle(
         "V3 bound consistency: gold_first ≥ random ≥ distractor_first expected",
         fontsize=13,
         fontweight="bold",
     )
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    fig.savefig(out_path, dpi=140)
+    plt.close(fig)
+    logger.info("wrote {}", out_path)
+
+
+# --------------------------------------------------------------------------- #
+# Model comparison plot (new for multi-model runs)                            #
+# --------------------------------------------------------------------------- #
+
+_MODEL_COLOURS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#9467bd"]
+
+
+def _plot_model_comparison(
+    df: pd.DataFrame,
+    metric: str,
+    *,
+    ladder: str,
+    title: str,
+    ylabel: str,
+    out_path: Path,
+    ylim: tuple[float, float] | None = None,
+) -> None:
+    """At one ladder, compare models per question + aggregate.
+
+    Skipped silently when only one model is present (nothing to compare).
+    Default ladder: 'random' (the headline view).
+    """
+    sub_all = df[df["ladder_type"] == ladder]
+    models = sorted(sub_all["model_key"].unique())
+    questions = sorted(sub_all["question_id"].unique())
+    if len(models) < 2:
+        logger.info("model_comparison({}): only {} models — skipping", metric, len(models))
+        return
+
+    n_q = len(questions)
+    n_cols = min(3, n_q + 1)
+    n_rows = math.ceil((n_q + 1) / n_cols)
+    fig, axes = plt.subplots(
+        n_rows, n_cols,
+        figsize=(5 * n_cols, 4 * n_rows),
+        squeeze=False,
+    )
+    axes_flat = axes.flatten()
+
+    model_colour = {m: c for m, c in zip(models, _MODEL_COLOURS)}
+
+    for ax, qid in zip(axes_flat, questions, strict=False):
+        q_sub = sub_all[sub_all["question_id"] == qid]
+        for m in models:
+            row = q_sub[q_sub["model_key"] == m].sort_values("level")
+            if row.empty:
+                continue
+            ax.plot(
+                row["level"],
+                row[metric],
+                marker="o",
+                color=model_colour[m],
+                label=m if ax is axes_flat[0] else None,
+                linewidth=2,
+            )
+        ax.set_title(f"qid={qid[:18]}...", fontsize=10)
+        ax.set_xlabel("context level (#paragraphs)")
+        ax.set_ylabel(ylabel)
+        ax.grid(True, alpha=0.3)
+        if ylim is not None:
+            ax.set_ylim(*ylim)
+
+    agg_ax = axes_flat[n_q]
+    grouped = (
+        sub_all.groupby(["model_key", "level"])[metric].mean().reset_index()
+    )
+    for m in models:
+        row = grouped[grouped["model_key"] == m].sort_values("level")
+        if row.empty:
+            continue
+        agg_ax.plot(
+            row["level"], row[metric],
+            marker="s", color=model_colour[m],
+            label=m, linewidth=2.5,
+        )
+    agg_ax.set_title("AGGREGATE (mean across questions)", fontsize=10, fontweight="bold")
+    agg_ax.set_xlabel("context level (#paragraphs)")
+    agg_ax.set_ylabel(ylabel)
+    agg_ax.grid(True, alpha=0.3)
+    if ylim is not None:
+        agg_ax.set_ylim(*ylim)
+    agg_ax.legend(loc="best", fontsize=9)
+
+    for ax in axes_flat[n_q + 1 :]:
+        ax.set_visible(False)
+
+    fig.suptitle(f"{title} (ladder='{ladder}')", fontsize=13, fontweight="bold")
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     fig.savefig(out_path, dpi=140)
     plt.close(fig)
@@ -370,7 +494,27 @@ def _write_report(df: pd.DataFrame, plots_dir: Path) -> None:
     lines.append("indicate that distractor paragraphs prime parametric retrieval more ")
     lines.append("effectively than direct gold facts for that question.")
     lines.append("")
-    lines.append("## 5. V1 — metric inter-correlation (small-N illustrative)")
+    # Model comparison section (only emitted when >1 model is present).
+    if len(models) > 1:
+        lines.append("## 5. Model comparison (at random ladder)")
+        lines.append("")
+        lines.append("![Model comparison: F-mean](06_model_comparison_f_mean.png)")
+        lines.append("")
+        lines.append("![Model comparison: AUFI_in](07_model_comparison_aufi_in.png)")
+        lines.append("")
+        lines.append(
+            "Direct visual comparison of the two evaluated models on the random "
+            "ladder (the realistic-user condition). Top panel shows per-question "
+            "F-mean trajectories; aggregate panel shows mean across questions. "
+            "If one model's curve sits consistently above the other, that model "
+            "handles paraphrase + context perturbations more robustly. If their "
+            "curves cross, there's a context-amount regime where the smaller "
+            "model wins — itself an interesting finding."
+        )
+        lines.append("")
+        lines.append("## 6. V1 — metric inter-correlation (small-N illustrative)")
+    else:
+        lines.append("## 5. V1 — metric inter-correlation (small-N illustrative)")
     lines.append("")
     lines.append("![Metric correlations](05_metric_correlations.png)")
     lines.append("")
@@ -447,6 +591,26 @@ def main() -> int:
     )
     _plot_three_ladder_envelope(df, plots_dir / "04_three_ladder_envelope.png")
     _plot_metric_correlations(df, plots_dir / "05_metric_correlations.png")
+    # Multi-model only: cross-model comparison at the random ladder. The
+    # plot helper bails out cleanly with a log line if only one model is
+    # present, so it's safe to call unconditionally.
+    _plot_model_comparison(
+        df,
+        metric="f_mean",
+        ladder="random",
+        title="Model comparison — F-mean accuracy",
+        ylabel="F-mean (fraction of paraphrases correct)",
+        out_path=plots_dir / "06_model_comparison_f_mean.png",
+        ylim=(-0.05, 1.05),
+    )
+    _plot_model_comparison(
+        df,
+        metric="aufi_in",
+        ladder="random",
+        title="Model comparison — AUFI_in (novel metric)",
+        ylabel="AUFI_in (bits)",
+        out_path=plots_dir / "07_model_comparison_aufi_in.png",
+    )
     _write_report(df, plots_dir)
 
     # Console summary

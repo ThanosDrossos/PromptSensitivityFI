@@ -81,18 +81,34 @@ e2e-smoke-dry:
 
 # --- Pilot for supervisor presentation ---
 
-# Full three-ladder × three-level pilot on whatever questions have cached
-# paraphrases. Uses k=3 H_sem samples + max 8 paraphrases per question for
-# speed (each cell ~5 min on CPU). Output to data/pilot_metrics.parquet.
-# Cost on the 3-question smoke cache: ~$0.50, ~2-3 hours overnight.
+# Extends the paraphrase cache to the first 5 sampled questions so the
+# `pilot` target has paraphrases for q4 and q5 (q1-3 are cached from
+# `paraphrases-smoke`). With --resume, the existing 3 questions are
+# skipped so this only costs the 2 new questions: ~50 min, ~$1.
+paraphrases-extend-5:
+	uv run python -m prompt_sensitivity.scripts.generate_paraphrases \
+		--limit 5 \
+		--out data/paraphrases_smoke.parquet \
+		--resume
+
+# Full three-ladder × three-level pilot on the first 5 cached questions
+# × 2 models (kit.gpt-4.1 + Llama-3.1-8B). k=3 H_sem samples + max 8
+# paraphrases per question for tractability on CPU.
+# Output: data/pilot_metrics.parquet.
+# Run paraphrases-extend-5 FIRST.
+# Cost ~$5-6, time ~12-15 h overnight on CPU.
 pilot:
 	uv run python -m prompt_sensitivity.scripts.e2e_smoke \
+		--n-questions 5 \
 		--ladders "random,gold_first,distractor_first" \
 		--levels "0,4,10" \
-		--models gpt_4o \
+		--models "gpt_4o,llama_3_1_8b" \
 		--k-samples 3 \
 		--max-paraphrases 8 \
 		--out data/pilot_metrics.parquet
+
+# Convenience: do the paraphrase extension + the pilot in one command.
+pilot-full: paraphrases-extend-5 pilot plot-pilot
 
 # Read data/e2e_metrics.parquet (default) or data/pilot_metrics.parquet
 # and generate plots + REPORT.md under data/plots/.
