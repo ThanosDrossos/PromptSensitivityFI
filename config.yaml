@@ -40,8 +40,7 @@ paraphrases:
                                     # sample_idxs 0..49 per template = 200 total raw across 4 templates.
                                     # Bump this (e.g. to 100) if the smoke shows many `exact_duplicate`
                                     # rejections — that's a generator non-diversity signal and more raw
-                                    # candidates is the lever that helps. The brief's "up to 50 attempts"
-                                    # is interpreted as this cap.
+                                    # candidates is the lever that helps.
   nli:
     model: "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
     bidirectional_threshold: 0.9
