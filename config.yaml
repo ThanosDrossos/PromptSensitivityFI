@@ -32,8 +32,16 @@ paraphrases:
   generator_temperature: 0.8
   templates: [neutral, journalist, casual_user, domain_expert]
   raw_candidates_per_question: 40
-  samples_per_template: 10          # 4 templates × 10 = 40 raw candidates
-  max_regeneration_attempts: 50
+  samples_per_template: 15          # per-iteration batch size; 4 templates × 15 = 60 candidates per iteration.
+                                    # Note: total raw is capped by max_regeneration_attempts below.
+                                    # Changing this alone does NOT increase the raw budget.
+  max_regeneration_attempts: 50     # MAX RAW CANDIDATES PER TEMPLATE (across all iterations).
+                                    # Despite the name, this caps `next_sample_start` — so 50 means
+                                    # sample_idxs 0..49 per template = 200 total raw across 4 templates.
+                                    # Bump this (e.g. to 100) if the smoke shows many `exact_duplicate`
+                                    # rejections — that's a generator non-diversity signal and more raw
+                                    # candidates is the lever that helps. The brief's "up to 50 attempts"
+                                    # is interpreted as this cap.
   nli:
     model: "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
     bidirectional_threshold: 0.9
