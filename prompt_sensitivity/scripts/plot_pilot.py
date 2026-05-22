@@ -38,6 +38,7 @@ import pandas as pd
 from loguru import logger
 
 from ..config import load_config
+from ..ladders.bit_cost import b_theo
 from ..logging_setup import configure_logging
 
 
@@ -263,6 +264,144 @@ def _plot_three_ladder_envelope(df: pd.DataFrame, out_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Plot 8 — quality vs context bits (twin axis F-mean / b_theo)                #
+# --------------------------------------------------------------------------- #
+
+
+def _b_theo_safe(N: int, K: int, l: int, cap: float = 5.0) -> float:
+    """b_theo clamped at `cap` for plotting — handles the L=0 infinity."""
+    v = b_theo(N, K, l)
+    if not math.isfinite(v):
+        return cap
+    return min(v, cap)
+
+
+def _plot_quality_vs_context_bits(
+    df: pd.DataFrame,
+    out_path: Path,
+    *,
+    n_total_paragraphs: int = 10,
+    k_gold: int = 2,
+) -> None:
+    """Twin-axis plot: F-mean vs context level + b_theo overlay.
+
+    Goal (supervisor framing): "Does adding more bits of context (in the
+    information-theoretic sense — b_theo from Sprint 3 §4.4) make the
+    model's accuracy go up?"
+
+    - Left y-axis (blue line, circles): F-mean across paraphrases.
+    - Right y-axis (red line, squares, INVERTED so up = more bits delivered):
+      b_theo = -log2(1 - C(N-K, l) / C(N, l)) — bits of theoretical
+      surprise about whether gold is in the random subset.
+      Lower b_theo on the level axis means more bits of gold-inclusion
+      certainty have been delivered.
+
+    Filtered to the random ladder (the realistic-user view). One panel per
+    question (multi-model: lines per model) + an aggregate panel.
+    """
+    sub = df[df["ladder_type"] == "random"]
+    questions = sorted(sub["question_id"].unique())
+    models = sorted(sub["model_key"].unique())
+    if not questions or not models:
+        logger.warning("no random-ladder data for quality_vs_context_bits plot")
+        return
+
+    n_q = len(questions)
+    n_cols = min(3, n_q + 1)
+    n_rows = math.ceil((n_q + 1) / n_cols)
+    fig, axes = plt.subplots(
+        n_rows, n_cols, figsize=(5.2 * n_cols, 4.2 * n_rows), squeeze=False
+    )
+    axes_flat = axes.flatten()
+
+    model_colour = {m: c for m, c in zip(models, _MODEL_COLOURS)}
+
+    # b_theo per level — fixed per (N, K, l) since it's closed-form.
+    levels_sorted = sorted(int(x) for x in sub["level"].unique())
+    b_theo_per_level = {l: _b_theo_safe(n_total_paragraphs, k_gold, l) for l in levels_sorted}
+    cap_for_y = max(b_theo_per_level.values()) * 1.1 or 1.0
+
+    def _draw_panel(ax, qid: str | None, label_prefix: str = "") -> None:
+        # Left axis — F-mean (one line per model)
+        for m in models:
+            if qid is None:
+                # Aggregate across questions for this model.
+                rows = sub[sub["model_key"] == m].groupby("level")["f_mean"].mean().reset_index()
+            else:
+                rows = (
+                    sub[(sub["model_key"] == m) & (sub["question_id"] == qid)]
+                    .sort_values("level")[["level", "f_mean"]]
+                )
+            if rows.empty:
+                continue
+            ax.plot(
+                rows["level"],
+                rows["f_mean"],
+                marker="o",
+                color=model_colour[m],
+                label=f"{m} F-mean" if (qid == questions[0] or qid is None) else None,
+                linewidth=2,
+            )
+        ax.set_ylim(-0.05, 1.05)
+        ax.set_xlabel("context level (#paragraphs)")
+        ax.set_ylabel("F-mean (accuracy)", color="#1f77b4")
+        ax.tick_params(axis="y", labelcolor="#1f77b4")
+        ax.grid(True, alpha=0.3)
+
+        # Right axis — b_theo (single red line, identical across models / questions)
+        ax2 = ax.twinx()
+        xs = list(b_theo_per_level.keys())
+        ys = [b_theo_per_level[l] for l in xs]
+        ax2.plot(
+            xs, ys,
+            marker="s", color="#d62728", linestyle="--", linewidth=1.5,
+            label="b_theo (bits, capped)" if (qid == questions[0] or qid is None) else None,
+        )
+        ax2.set_ylim(0, cap_for_y)
+        ax2.set_ylabel("b_theo (bits — surprise of gold inclusion)", color="#d62728")
+        ax2.tick_params(axis="y", labelcolor="#d62728")
+        ax.set_title(f"{label_prefix}qid={qid[:18] + '...' if qid else 'AGGREGATE'}", fontsize=10)
+
+    # Per-question panels.
+    for ax, qid in zip(axes_flat, questions, strict=False):
+        _draw_panel(ax, qid)
+
+    # Aggregate panel.
+    _draw_panel(axes_flat[n_q], None, label_prefix="")
+    axes_flat[n_q].set_title("AGGREGATE (mean across questions)", fontsize=10, fontweight="bold")
+
+    # Hide unused subplot slots.
+    for ax in axes_flat[n_q + 1 :]:
+        ax.set_visible(False)
+
+    # Build a unified legend at the figure level.
+    handles, labels = [], []
+    for line in axes_flat[0].get_lines():
+        h, l = line, line.get_label()
+        if l and not l.startswith("_"):
+            handles.append(h); labels.append(l)
+    # Pull twin-axis red line from the FIRST panel's twin if accessible.
+    for ax in fig.axes:
+        if ax.get_ylabel().startswith("b_theo"):
+            for line in ax.get_lines():
+                l = line.get_label()
+                if l and not l.startswith("_") and l not in labels:
+                    handles.append(line); labels.append(l)
+            break
+    if handles:
+        fig.legend(handles, labels, loc="upper right", ncol=min(len(labels), 3), fontsize=9)
+
+    fig.suptitle(
+        "Quality vs context bits  —  F-mean (left, blue) climbs as b_theo (right, red dashed) drops",
+        fontsize=12, fontweight="bold",
+    )
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    fig.savefig(out_path, dpi=140)
+    plt.close(fig)
+    logger.info("wrote {}", out_path)
+
+
+# --------------------------------------------------------------------------- #
 # Model comparison plot (new for multi-model runs)                            #
 # --------------------------------------------------------------------------- #
 
@@ -467,9 +606,24 @@ def _write_report(df: pd.DataFrame, plots_dir: Path) -> None:
     lines.append("![AUFI_in by level](02_aufi_in_by_level.png)")
     lines.append("")
     lines.append("AUFI_in (Area under FI_in(k) curve) is the design doc's primary ")
-    lines.append("scalar (Section_7 §7.3). Lower = more paraphrases pass the threshold ")
-    lines.append("(less prompt-sensitivity). Should decrease as context grows for ")
-    lines.append("questions the model can answer.")
+    lines.append("scalar (Section_7 §7.3). **Units: BITS.** Bounded in [0, log₂(N+1)] — ")
+    lines.append("for N=30 paraphrases the cap is ~4.95 bits; for N=10 it is ~3.46 bits. ")
+    lines.append("Lower = more paraphrases pass the threshold (less prompt-sensitivity). ")
+    lines.append("Should decrease as context grows for questions the model can answer.")
+    lines.append("")
+    lines.append("**Quick units cheat-sheet (because supervisors always ask):**")
+    lines.append("")
+    lines.append("| Metric | Range | Units |")
+    lines.append("|---|---|---|")
+    lines.append("| F-mean (plot 1) | [0, 1] | accuracy (fraction of paraphrases correct) |")
+    lines.append("| AUFI_in (plot 2) | [0, log₂(N+1)] | **bits** |")
+    lines.append("| FI_in(k) (curve, not plotted) | [0, log₂(N)] ∪ {+∞} | **bits** |")
+    lines.append("| H_sem (plot 3) | [0, log₂(|A_q|)] | **bits** |")
+    lines.append("| S_τ (Errica) | [0, 1] | normalised entropy (dimensionless) |")
+    lines.append("| spread | [0, 1] | max(F) − min(F) on binary F |")
+    lines.append("| variation_ratio | [0, 1] | 1 − mode_count/N |")
+    lines.append("| ρ_u (Cox 2025) | [0, 1] | variance ratio (dimensionless) |")
+    lines.append("| POSIX ψ | [0, ∞) | natural log per token (rare units) |")
     lines.append("")
     lines.append("## 3. Farquhar 2024 semantic entropy (baseline)")
     lines.append("")
@@ -493,6 +647,27 @@ def _write_report(df: pd.DataFrame, plots_dir: Path) -> None:
     lines.append("Failures (random > gold_first) would be interesting — they would ")
     lines.append("indicate that distractor paragraphs prime parametric retrieval more ")
     lines.append("effectively than direct gold facts for that question.")
+    lines.append("")
+    lines.append("## 4b. Quality vs context bits (does more b_theo info mean better accuracy?)")
+    lines.append("")
+    lines.append("![Quality vs context bits](08_quality_vs_context_bits.png)")
+    lines.append("")
+    lines.append("**Plot reading.** Blue (left axis) = F-mean accuracy. Red dashed ")
+    lines.append("(right axis) = b_theo — bits of *theoretical surprise* about ")
+    lines.append("whether at least one gold paragraph is in a random subset of size l ")
+    lines.append("(Sprint 3 §4.4 closed-form from `prompt_sensitivity.ladders.bit_cost`). ")
+    lines.append("b_theo drops monotonically from +∞ at L=0 (no chance of gold) to ")
+    lines.append("0 bits at L≥9 (gold guaranteed by pigeonhole).")
+    lines.append("")
+    lines.append("**The story for the supervisor.** As context level grows, b_theo falls ")
+    lines.append("— each added paragraph delivers more bits of certainty that gold ")
+    lines.append("is in the prompt. The hypothesis the metric is *designed* to test: ")
+    lines.append("more bits delivered → better accuracy. Verify visually that the blue ")
+    lines.append("curve climbs as the red curve falls. Where they DON'T move together ")
+    lines.append("(e.g. q1 stays flat at F=0 even as b_theo drops to 0) is itself a ")
+    lines.append("finding: that question is bottlenecked by something other than ")
+    lines.append("gold-paragraph availability (model knowledge gap, prompt template, ")
+    lines.append("answer-extraction failure, etc.).")
     lines.append("")
     # Model comparison section (only emitted when >1 model is present).
     if len(models) > 1:
@@ -591,6 +766,13 @@ def main() -> int:
     )
     _plot_three_ladder_envelope(df, plots_dir / "04_three_ladder_envelope.png")
     _plot_metric_correlations(df, plots_dir / "05_metric_correlations.png")
+    # Sprint-3 §4.4 b_theo defaults — N=10 paragraphs with K=2 gold.
+    _plot_quality_vs_context_bits(
+        df,
+        plots_dir / "08_quality_vs_context_bits.png",
+        n_total_paragraphs=10,
+        k_gold=2,
+    )
     # Multi-model only: cross-model comparison at the random ladder. The
     # plot helper bails out cleanly with a log line if only one model is
     # present, so it's safe to call unconditionally.
