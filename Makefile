@@ -4,7 +4,8 @@
 .PHONY: install test lint sample sprint1-verify list-models clean \
         paraphrases paraphrases-smoke export-annotation compute-kappa \
         diagnose-paraphrases build-ladders smoke-metrics e2e-smoke \
-        pilot plot-pilot
+        pilot plot-pilot paraphrases-extend-5 pilot-full \
+        pilot-musique pilot-musique-dry e2e-smoke-dry
 
 install:
 	uv sync --all-extras
@@ -109,6 +110,29 @@ pilot:
 
 # Convenience: do the paraphrase extension + the pilot in one command.
 pilot-full: paraphrases-extend-5 pilot plot-pilot
+
+# v6 MuSiQue dual-ladder pilot. Samples 5 MuSiQue questions directly (live
+# paraphrase generation, cached), runs BOTH the context ladder (random) and
+# the reasoning ladder, scores with graded chain-completion F. The headline
+# v6 experiment: compare the two ladders' FI_in curves on the same questions.
+# Requires MuSiQue available (data/raw/musique/ jsonl or the configured HF
+# mirror). Output: data/pilot_musique.parquet.
+pilot-musique:
+	uv run python -m prompt_sensitivity.scripts.e2e_smoke \
+		--musique-direct 5 \
+		--families "context,reasoning" \
+		--ladders "random,gold_first,distractor_first" \
+		--levels "0,4,10" \
+		--models "gpt_4o" \
+		--k-samples 3 \
+		--max-paraphrases 8 \
+		--out data/pilot_musique.parquet
+
+pilot-musique-dry:
+	uv run python -m prompt_sensitivity.scripts.e2e_smoke \
+		--musique-direct 5 --families "context,reasoning" \
+		--ladders "random,gold_first,distractor_first" --levels "0,4,10" \
+		--models "gpt_4o" --dry-run
 
 # Read data/e2e_metrics.parquet (default) or data/pilot_metrics.parquet
 # and generate plots + REPORT.md under data/plots/.

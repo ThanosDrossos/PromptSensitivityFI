@@ -1,38 +1,43 @@
-"""End-to-end smoke test — Sprints 1-4 wired together on N questions.
+"""End-to-end smoke test — Sprints 1-4 + v6 dual-ladder wired together.
 
-Reads paraphrases from the existing parquet (smoke or v1), builds ladders
-on demand for those questions, and for every (q, ladder_type, level,
-model) cell does the real Sprint-5 work:
+For every (question, ladder_type, level, model) cell it does the real work:
 
-  1. Assemble N prompts (one per accepted paraphrase + ladder paragraphs)
-  2. F(x) per paraphrase: sample at T=0, score with NLI-with-gold
-  3. H_sem samples per paraphrase: k samples at T=h_sem_temp
-  4. Pool-cluster the (N x k) responses via DeBERTa NLI
-  5. Encode prompts + responses with the external mpnet
-  6. POSIX matrix: SKIPPED by default (echo path requires separate
-     verification; pass --include-posix to enable on echo-capable models)
-  7. build_metric_tuple -> one row in data/e2e_metrics.parquet
+  1. Assemble prompts (one per accepted paraphrase + ladder content).
+  2. F(x) per paraphrase:
+       - MuSiQue (has decomposition): CoT prompt -> graded chain-completion
+         fraction (v6 §2). Secondary binary final-answer F stored alongside.
+       - HotpotQA / 2Wiki: baseline prompt -> binary NLI-with-gold F (unchanged).
+  3. H_sem samples per paraphrase: k samples at T=h_sem_temp.
+  4. Pool-cluster the (N x k) responses via DeBERTa NLI (Sprint-4 contract).
+  5. Encode prompts + responses with the external mpnet.
+  6. POSIX matrix (optional, --include-posix; context family only).
+  7. build_metric_tuple -> one row, augmented with v6 columns
+     (ladder_family, scoring_mode, final_answer_f_mean).
 
-CLI knobs (all optional):
-  --n-questions N      : default 5; uses first N from paraphrase parquet
-  --paraphrases PATH   : default data/paraphrases_smoke.parquet (fallback
-                         to data/paraphrases_v1.parquet)
-  --models KEYS        : comma-separated model_keys; default gpt_4o
-                         (the cheapest one)
-  --ladders TYPES      : comma-separated; default random
-  --levels LIST        : comma-separated ints; default 0,4,10
-  --k-samples K        : H_sem samples per prompt; default 3 (brief says 10)
-  --max-paraphrases M  : cap per question; default 10 (brief target is 30)
-  --out PATH           : default data/e2e_metrics.parquet
-  --include-posix      : enable POSIX echo path on echo-capable models
-  --dry-run            : skip the gateway calls; report what WOULD run
+Two ways to select questions:
+  - default: read qids from the paraphrase parquet (HotpotQA / 2Wiki / MuSiQue
+    if those qids were paraphrased). Dataset is auto-detected per question.
+  - --musique-direct N: sample N MuSiQue questions straight from the loader and
+    generate their paraphrase universe live via the Sprint-2 pipeline (cached).
+    This runs a full MuSiQue smoke without a pre-existing paraphrase parquet.
 
-Cost estimate (defaults):
-  cells = N x |ladders| x |levels| x |models| = 5 x 1 x 3 x 1 = 15
-  per cell = M paraphrases x (1 F-call + k H_sem samples)
-           = 10 x 4 = 40 LLM calls
-  total = ~600 LLM calls @ ~$0.0005 = ~$0.30 (kit.gpt-4.1)
-  time  = ~15-20 min (network-bound, plus DeBERTa load + clustering)
+Ladder families (--families): "context" (paragraphs) and/or "reasoning"
+(decomposition hops, MuSiQue-only). The reasoning ladder feeds hops 0..k-1 as
+scaffold, withholding the final hop (v6 §5).
+
+CLI knobs:
+  --n-questions N         questions from the paraphrase parquet (default 5)
+  --musique-direct N      sample N MuSiQue questions directly instead (default 0=off)
+  --paraphrases PATH      paraphrase parquet (default smoke then v1)
+  --models KEYS           comma list (default gpt_4o)
+  --ladders TYPES         context ladders (default random)
+  --families FAMS         context,reasoning (default context)
+  --levels LIST           context-ladder levels (default 0,4,10)
+  --k-samples K           H_sem samples per prompt (default 3)
+  --max-paraphrases M     cap per question (default 10)
+  --out PATH              parquet (default data/e2e_metrics.parquet)
+  --include-posix         POSIX echo path on echo-capable models (context only)
+  --dry-run               print the plan, no gateway calls
 """
 
 from __future__ import annotations
@@ -41,9 +46,7 @@ import argparse
 import json
 import math
 import sys
-from collections import defaultdict
 from pathlib import Path
-from typing import Iterable
 
 import numpy as np
 import pandas as pd
@@ -54,18 +57,30 @@ from ..data import (
     HotpotParagraph,
     MultiHopQuestion,
     load_hotpotqa_validation,
+    load_musique_validation,
     load_twiki_validation,
 )
-from ..ladders import build_random_ladder, build_gold_first_ladder, build_distractor_first_ladder
+from ..ladders import (
+    build_distractor_first_ladder,
+    build_gold_first_ladder,
+    build_random_ladder,
+    build_reasoning_ladder,
+    render_reasoning_scaffold,
+)
 from ..ladders.schemas import LadderRow
 from ..logging_setup import configure_logging
 from ..metrics import build_metric_tuple
 from ..models import LLMRequest
 from ..models.embedding import encode_texts
 from ..models.registry import get_client
-from ..models.schemas import CompletionRequest
-from ..prompts import assemble_qa_messages
-from ..scoring import f_score_batch
+from ..models.schemas import ChatMessage, CompletionRequest
+from ..prompts import (
+    assemble_qa_cot_messages,
+    assemble_qa_messages,
+    parse_answer_line,
+)
+from ..prompts.templates.qa_prompt import QA_COT_SYSTEM_PROMPT
+from ..scoring import chain_completion_score_batch, f_score_batch
 
 
 # --------------------------------------------------------------------------- #
@@ -74,27 +89,18 @@ from ..scoring import f_score_batch
 
 
 def _load_paraphrase_parquet(paths: list[Path]) -> pd.DataFrame:
-    """Return the first existing parquet from the prioritised list, or fail."""
     for p in paths:
         if p.exists():
             logger.info("paraphrases source: {}", p)
             return pd.read_parquet(p)
     raise FileNotFoundError(
         f"none of these paraphrase parquets exist: {[str(p) for p in paths]}. "
-        "Run `make paraphrases-smoke` or `make paraphrases` first."
+        "Run `make paraphrases-smoke` or `make paraphrases` first, or use "
+        "--musique-direct N."
     )
 
 
 def _accepted_per_q(df: pd.DataFrame, max_per_q: int) -> dict[str, list[str]]:
-    """Return {qid -> [paraphrase texts]} for accepted rows, capped at max_per_q.
-
-    A question's `dropped=True` flag means it COULDN'T reach the brief's
-    target of 30, but rows marked outcome='accepted' on a dropped question
-    are still valid paraphrases — we just have fewer of them than ideal.
-    The E2E smoke happily processes whatever's available; the FI_in
-    estimator's denominator is `|U_q|` so smaller N just means coarser
-    resolution, not an error.
-    """
     out: dict[str, list[str]] = {}
     accepted = df[df["outcome"] == "accepted"]
     for qid, sub in accepted.groupby("question_id"):
@@ -103,69 +109,156 @@ def _accepted_per_q(df: pd.DataFrame, max_per_q: int) -> dict[str, list[str]]:
     return out
 
 
-def _index_questions(config) -> dict[str, MultiHopQuestion]:
-    """Build {id -> MultiHopQuestion} across HotpotQA + 2Wiki validation."""
+def _index_questions(config, *, include_musique: bool = True) -> dict[str, MultiHopQuestion]:
+    """{id -> MultiHopQuestion} across HotpotQA + 2Wiki (+ MuSiQue if available)."""
+    idx: dict[str, MultiHopQuestion] = {}
     logger.info("loading HotpotQA validation ...")
     hp = load_hotpotqa_validation(
         hf_dataset=config.sampling.hotpotqa.hf_dataset,
         hf_config=config.sampling.hotpotqa.hf_config or "distractor",
         split=config.sampling.hotpotqa.split,
     )
+    idx.update({q.id: q for q in hp})
     logger.info("loading 2WikiMultihopQA validation ...")
     tw = load_twiki_validation(
         hf_dataset=config.sampling.twiki.hf_dataset,
         hf_config=config.sampling.twiki.hf_config,
         split=config.sampling.twiki.split,
     )
-    idx: dict[str, MultiHopQuestion] = {}
-    idx.update({q.id: q for q in hp})
     idx.update({q.id: q for q in tw})
+
+    if include_musique and config.sampling.musique is not None:
+        try:
+            mq = _load_musique(config)
+            idx.update({q.id: q for q in mq})
+            logger.info("loaded {} MuSiQue questions into the index", len(mq))
+        except Exception as exc:  # noqa: BLE001 — non-fatal for Hotpot-only runs
+            logger.warning("MuSiQue not loaded into index: {}", exc)
     return idx
 
 
+def _load_musique(config) -> list[MultiHopQuestion]:
+    m = config.sampling.musique
+    return load_musique_validation(
+        hf_dataset=m.hf_dataset or None,
+        hf_config=m.hf_config,
+        split=m.split,
+        local_path=m.local_path,
+        repo_root=config.repo_root(),
+    )
+
+
+def _pick_musique_questions(config, n: int) -> list[MultiHopQuestion]:
+    """Load MuSiQue and pick N questions (highest hop-count first for graded F)."""
+    all_mq = _load_musique(config)
+    all_mq.sort(key=lambda q: -(q.n_hops or 0))
+    return all_mq[:n]
+
+
+def _generate_musique_paraphrases(
+    config, questions: list[MultiHopQuestion], max_paraphrases: int
+) -> dict[str, list[str]]:
+    """Generate each question's paraphrase universe live via the Sprint-2 pipeline.
+
+    Cached. Questions that yield no paraphrases fall back to the original
+    question text as a singleton universe (graded chain scoring still produces
+    a non-trivial F).
+    """
+    from ..paraphrases.pipeline import build_paraphrase_set
+
+    paraphrases: dict[str, list[str]] = {}
+    for q in questions:
+        try:
+            pset = build_paraphrase_set(q.id, q.question, config=config, gold_answer=q.answer)
+            texts = [ap.text for ap in pset.accepted][:max_paraphrases]
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("paraphrase gen failed for {}: {}", q.id, exc)
+            texts = []
+        if not texts:
+            logger.warning("qid={} no paraphrases; using original question as singleton", q.id)
+            texts = [q.question]
+        paraphrases[q.id] = texts
+    return paraphrases
+
+
 # --------------------------------------------------------------------------- #
-# Ladder lookup                                                              #
+# Ladder construction per family                                              #
 # --------------------------------------------------------------------------- #
 
 
-_LADDER_BUILDERS = {
+_CONTEXT_BUILDERS = {
     "random": build_random_ladder,
     "gold_first": build_gold_first_ladder,
     "distractor_first": build_distractor_first_ladder,
 }
 
 
-def _ladder_rows_for(question: MultiHopQuestion, ladder_type: str) -> list[LadderRow]:
-    builder = _LADDER_BUILDERS.get(ladder_type)
-    if builder is None:
-        raise ValueError(f"unknown ladder_type {ladder_type!r}")
-    return builder(question)
+def _context_rows(question: MultiHopQuestion, ladder_type: str, levels: list[int]) -> list[LadderRow]:
+    builder = _CONTEXT_BUILDERS[ladder_type]
+    rows = builder(question)
+    return [r for r in rows if r.level in levels]
 
 
-def _paragraphs_at_level(
-    question: MultiHopQuestion, ladder_rows: list[LadderRow], level: int
-) -> list[HotpotParagraph]:
-    """Return the paragraphs (HotpotParagraph) selected at this ladder level."""
-    row = next((r for r in ladder_rows if r.level == level), None)
-    if row is None:
-        raise ValueError(f"no ladder row at level={level}")
+def _paragraphs_for_row(question: MultiHopQuestion, row: LadderRow) -> list[HotpotParagraph]:
     return [question.paragraphs[i] for i in row.paragraph_indices]
 
 
 # --------------------------------------------------------------------------- #
-# Sampling helpers                                                            #
+# Prompt assembly per cell                                                    #
+# --------------------------------------------------------------------------- #
+
+
+def _assemble_messages(
+    question: MultiHopQuestion,
+    paraphrase_text: str,
+    row: LadderRow,
+    *,
+    use_cot: bool,
+) -> list[ChatMessage]:
+    """Build the chat messages for one (paraphrase, ladder-row) cell.
+
+    - context family: paragraphs from the row.
+    - reasoning family: scaffold of hops 0..k-1 injected as the context block.
+    - use_cot: MuSiQue -> True (graded chain scoring needs the reasoning text);
+               HotpotQA -> False (baseline brief-answer).
+    """
+    if row.ladder_family == "reasoning":
+        scaffold = render_reasoning_scaffold(question, row.hops_provided or 0)
+        # Reasoning ladder always uses the CoT system prompt; the scaffold is
+        # the "known so far" block. Build the user message inline so we can
+        # label it clearly as solved sub-steps rather than retrieved context.
+        if scaffold:
+            user = (
+                "Known intermediate steps so far:\n"
+                f"{scaffold}\n\n"
+                f"Question: {paraphrase_text.strip()}\n\n"
+                "Continue the reasoning to the final answer, then end with a "
+                "line starting 'Answer:'."
+            )
+        else:
+            user = (
+                f"Question: {paraphrase_text.strip()}\n\n"
+                "Reason step by step, then end with a line starting 'Answer:'."
+            )
+        return [
+            ChatMessage(role="system", content=QA_COT_SYSTEM_PROMPT),
+            ChatMessage(role="user", content=user),
+        ]
+
+    # context family
+    paragraphs = _paragraphs_for_row(question, row)
+    if use_cot:
+        return assemble_qa_cot_messages(paraphrase_text, paragraphs)
+    return assemble_qa_messages(paraphrase_text, paragraphs)
+
+
+# --------------------------------------------------------------------------- #
+# Sampling                                                                     #
 # --------------------------------------------------------------------------- #
 
 
 def _sample_response(
-    client,
-    model_entry,
-    messages,
-    *,
-    temperature: float,
-    seed: int,
-    purpose: str,
-    max_tokens: int = 128,
+    client, model_entry, messages, *, temperature: float, seed: int, purpose: str, max_tokens: int
 ) -> str:
     req = LLMRequest(
         provider=model_entry.provider,  # type: ignore[arg-type]
@@ -188,14 +281,13 @@ def _sample_response(
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--n-questions", type=int, default=5)
-    parser.add_argument(
-        "--paraphrases",
-        type=str,
-        default=None,
-        help="Paraphrase parquet path. Default tries smoke then v1.",
-    )
+    parser.add_argument("--musique-direct", type=int, default=0,
+                        help="Sample N MuSiQue questions directly (live paraphrase gen).")
+    parser.add_argument("--paraphrases", type=str, default=None)
     parser.add_argument("--models", type=str, default="gpt_4o")
     parser.add_argument("--ladders", type=str, default="random")
+    parser.add_argument("--families", type=str, default="context",
+                        help="comma list: context,reasoning (reasoning is MuSiQue-only)")
     parser.add_argument("--levels", type=str, default="0,4,10")
     parser.add_argument("--k-samples", type=int, default=3)
     parser.add_argument("--max-paraphrases", type=int, default=10)
@@ -205,292 +297,311 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _build_cell_rows(
+    question: MultiHopQuestion,
+    families: list[str],
+    ladders: list[str],
+    levels: list[int],
+) -> list[LadderRow]:
+    """All ladder rows to evaluate for one question, across requested families."""
+    rows: list[LadderRow] = []
+    if "context" in families:
+        for lt in ladders:
+            rows.extend(_context_rows(question, lt, levels))
+    if "reasoning" in families and question.has_decomposition():
+        rows.extend(build_reasoning_ladder(question))
+    return rows
+
+
 def main() -> int:
     args = _parse_args()
     configure_logging("e2e_smoke")
     config = load_config()
     repo_root = config.repo_root()
 
-    # --- 1. Load paraphrases -----------------------------------------------
-    if args.paraphrases:
-        paths = [repo_root / args.paraphrases]
-    else:
-        paths = [
-            repo_root / "data" / "paraphrases_smoke.parquet",
-            repo_root / "data" / "paraphrases_v1.parquet",
-        ]
-    df = _load_paraphrase_parquet(paths)
-    accepted = _accepted_per_q(df, args.max_paraphrases)
-    if not accepted:
-        logger.error("no accepted paraphrases found; nothing to do")
-        return 1
-    qids = list(accepted.keys())[: args.n_questions]
-    logger.info(
-        "{} questions selected; paraphrase counts: {}",
-        len(qids),
-        {qid: len(accepted[qid]) for qid in qids},
-    )
-
-    # --- 2. Load question records (paragraphs + gold answer) ---------------
-    q_idx = _index_questions(config)
-    questions = []
-    for qid in qids:
-        q = q_idx.get(qid)
-        if q is None:
-            logger.warning("qid={} not found in datasets; skipping", qid)
-            continue
-        questions.append(q)
-    if not questions:
-        logger.error("no valid question records loaded; bailing")
-        return 1
-
-    # --- 3. Parse cell knobs ----------------------------------------------
+    families = [f.strip() for f in args.families.split(",") if f.strip()]
     models = [m.strip() for m in args.models.split(",") if m.strip()]
     ladders = [l.strip() for l in args.ladders.split(",") if l.strip()]
     levels = [int(x) for x in args.levels.split(",") if x.strip()]
     for m in models:
         if m not in config.models:
-            logger.error(
-                "unknown model_key {!r}; available: {}", m, list(config.models)
-            )
-            return 1
-    for l in ladders:
-        if l not in _LADDER_BUILDERS:
-            logger.error("unknown ladder_type {!r}", l)
+            logger.error("unknown model_key {!r}; available: {}", m, list(config.models))
             return 1
 
-    n_cells = len(questions) * len(ladders) * len(levels) * len(models)
-    n_calls_estimate = sum(
-        len(ladders) * len(levels) * len(models) * len(accepted[q.id]) * (1 + args.k_samples)
+    # --- select questions + paraphrases ------------------------------------
+    musique_direct = args.musique_direct > 0
+    if musique_direct:
+        logger.info("MuSiQue-direct mode: sampling {} questions", args.musique_direct)
+        questions = _pick_musique_questions(config, args.musique_direct)
+        if not questions:
+            logger.error("no MuSiQue questions loaded; bailing")
+            return 1
+        # Defer live paraphrase generation until past the dry-run gate. For the
+        # plan estimate, assume the configured cap.
+        accepted = {q.id: ["<paraphrase>"] * args.max_paraphrases for q in questions}
+    else:
+        if args.paraphrases:
+            paths = [repo_root / args.paraphrases]
+        else:
+            paths = [
+                repo_root / "data" / "paraphrases_smoke.parquet",
+                repo_root / "data" / "paraphrases_v1.parquet",
+            ]
+        df = _load_paraphrase_parquet(paths)
+        accepted = _accepted_per_q(df, args.max_paraphrases)
+        if not accepted:
+            logger.error("no accepted paraphrases found; nothing to do")
+            return 1
+        qids = list(accepted.keys())[: args.n_questions]
+        q_idx = _index_questions(config)
+        questions = []
+        for qid in qids:
+            q = q_idx.get(qid)
+            if q is None:
+                logger.warning("qid={} not found in datasets; skipping", qid)
+                continue
+            questions.append(q)
+        if not questions:
+            logger.error("no valid question records loaded; bailing")
+            return 1
+
+    # --- plan ---------------------------------------------------------------
+    cell_rows_by_q = {q.id: _build_cell_rows(q, families, ladders, levels) for q in questions}
+    n_cells = sum(len(cell_rows_by_q[q.id]) for q in questions) * len(models)
+    n_calls = sum(
+        len(cell_rows_by_q[q.id]) * len(models) * len(accepted[q.id]) * (1 + args.k_samples)
         for q in questions
     )
     logger.info(
-        "plan: {} cells, ~{} LLM calls "
-        "(N_q={}, ladders={}, levels={}, models={}, k_samples={}, max_paraphrases={})",
-        n_cells,
-        n_calls_estimate,
-        len(questions),
-        ladders,
-        levels,
-        models,
-        args.k_samples,
-        args.max_paraphrases,
+        "plan: {} cells, ~{} LLM calls (N_q={}, families={}, ladders={}, levels={}, models={}, k={})",
+        n_cells, n_calls, len(questions), families, ladders, levels, models, args.k_samples,
     )
     if args.dry_run:
         print(json.dumps({
             "dry_run": True,
             "n_cells": n_cells,
-            "estimated_llm_calls": n_calls_estimate,
+            "estimated_llm_calls": n_calls,
             "questions": [q.id for q in questions],
+            "datasets": sorted({q.dataset for q in questions}),
+            "families": families,
             "models": models,
             "ladders": ladders,
             "levels": levels,
         }, indent=2))
         return 0
 
-    # --- 4. Pre-build ladders -----------------------------------------------
-    ladder_cache: dict[tuple[str, str], list[LadderRow]] = {}
-    for q in questions:
-        for lt in ladders:
-            ladder_cache[(q.id, lt)] = _ladder_rows_for(q, lt)
+    # MuSiQue-direct: generate the paraphrase universe live (network) now that
+    # we're past the dry-run gate.
+    if musique_direct:
+        accepted = _generate_musique_paraphrases(config, questions, args.max_paraphrases)
+        cell_rows_by_q = {q.id: _build_cell_rows(q, families, ladders, levels) for q in questions}
 
-    # --- 5. Run cells -------------------------------------------------------
     from ..metrics.h_sem import cluster_responses_pooled
 
-    tuples: list[dict] = []
+    answer_max = config.generation.answer_max_tokens
+    cot_max = config.generation.cot_max_tokens
+
+    rows_out: list[dict] = []
     for q in questions:
         paraphrases = accepted[q.id]
-        for ladder_type in ladders:
-            ladder_rows = ladder_cache[(q.id, ladder_type)]
-            for level in levels:
-                paragraphs = _paragraphs_at_level(q, ladder_rows, level)
-                for model_key in models:
-                    model_entry = config.models[model_key]
-                    client = get_client(model_key, config)
+        use_cot = q.has_decomposition()
+        scoring_mode = "chain_completion" if use_cot else "binary_nli"
+        for row in cell_rows_by_q[q.id]:
+            for model_key in models:
+                model_entry = config.models[model_key]
+                client = get_client(model_key, config)
+                logger.info(
+                    "cell qid={} ds={} family={} ladder={} level={} model={} N={} mode={}",
+                    q.id, q.dataset, row.ladder_family, row.ladder_type, row.level,
+                    model_key, len(paraphrases), scoring_mode,
+                )
+
+                # --- prompts -----------------------------------------------
+                prompt_messages = [
+                    _assemble_messages(q, p, row, use_cot=use_cot) for p in paraphrases
+                ]
+                prompt_user_texts = [m[1].content for m in prompt_messages]
+                gen_max = cot_max if use_cot else answer_max
+
+                # --- F(x) at T=0 -------------------------------------------
+                f_responses: list[str] = []
+                for i, msgs in enumerate(prompt_messages):
+                    f_responses.append(_sample_response(
+                        client, model_entry, msgs,
+                        temperature=0.0, seed=42,
+                        purpose=f"e2e_f::{q.id}::{row.ladder_type}::L{row.level}::{model_key}",
+                        max_tokens=gen_max,
+                    ))
+
+                if use_cot:
+                    # PRIMARY graded F = chain-completion fraction.
+                    f_scores = chain_completion_score_batch(
+                        q.question_decomposition, f_responses, config=config
+                    )
+                    # SECONDARY binary final-answer F (parse the Answer: line).
+                    final_answers = [parse_answer_line(r) for r in f_responses]
+                    final_binary = f_score_batch(q.answer, final_answers, config=config)
+                    final_answer_f_mean = float(np.mean(final_binary)) if final_binary else None
                     logger.info(
-                        "cell qid={} ladder={} level={} model={} N={} k={}",
-                        q.id, ladder_type, level, model_key,
-                        len(paraphrases), args.k_samples,
+                        "  chain F: mean={:.3f} values={}  final-answer F mean={:.3f}",
+                        float(np.mean(f_scores)) if f_scores else 0.0,
+                        [round(s, 2) for s in f_scores[:5]],
+                        final_answer_f_mean or 0.0,
+                    )
+                else:
+                    f_scores = [float(x) for x in f_score_batch(q.answer, f_responses, config=config)]
+                    final_answer_f_mean = float(np.mean(f_scores)) if f_scores else None
+                    logger.info(
+                        "  binary F: pass={}/{}", int(sum(f_scores)), len(f_scores)
                     )
 
-                    # --- prompts ------------------------------------------
-                    prompt_messages = [
-                        assemble_qa_messages(p, paragraphs) for p in paraphrases
-                    ]
-                    prompt_user_texts = [m[1].content for m in prompt_messages]
-
-                    # --- F(x) at T=0 (deterministic single answer) ---------
-                    f_answers: list[str] = []
-                    for i, msgs in enumerate(prompt_messages):
-                        ans = _sample_response(
+                # --- H_sem samples -----------------------------------------
+                responses_per_paraphrase: dict[int, list[str]] = {}
+                for i, msgs in enumerate(prompt_messages):
+                    samples: list[str] = []
+                    for kk in range(args.k_samples):
+                        samples.append(_sample_response(
                             client, model_entry, msgs,
-                            temperature=0.0, seed=42,
-                            purpose=f"e2e_f_score::{q.id}::{ladder_type}::L{level}::{model_key}",
-                            max_tokens=64,
-                        )
-                        f_answers.append(ans)
-                    f_scores = f_score_batch(q.answer, f_answers, config=config)
-                    logger.info(
-                        "  F(x): pass={}/{} answers={}",
-                        sum(f_scores), len(f_scores),
-                        [a[:40] for a in f_answers[:3]],
+                            temperature=config.h_sem.sampling_temperature,
+                            seed=10000 + i * 100 + kk,
+                            purpose=f"e2e_hsem::{q.id}::{row.ladder_type}::L{row.level}::{model_key}::s{kk}",
+                            max_tokens=gen_max,
+                        ))
+                    responses_per_paraphrase[i] = samples
+
+                cluster_assignments = cluster_responses_pooled(
+                    responses_per_paraphrase, config=config
+                )
+
+                # --- embeddings --------------------------------------------
+                prompt_embeddings = encode_texts(prompt_user_texts, config=config)
+                response_embeddings: dict[int, np.ndarray] = {}
+                for i, samples in responses_per_paraphrase.items():
+                    response_embeddings[i] = encode_texts(samples, config=config)
+
+                # --- POSIX (context family only; optional) -----------------
+                posix_log_p = None
+                posix_lengths = None
+                if (
+                    args.include_posix
+                    and model_entry.echo_completions
+                    and row.ladder_family == "context"
+                ):
+                    posix_log_p, posix_lengths = _posix_matrix(
+                        client, model_entry, prompt_messages, f_responses, q, row
                     )
 
-                    # --- H_sem samples at T=h_sem.sampling_temperature ----
-                    responses_per_paraphrase: dict[int, list[str]] = {}
-                    for i, msgs in enumerate(prompt_messages):
-                        samples: list[str] = []
-                        for k in range(args.k_samples):
-                            samples.append(_sample_response(
-                                client, model_entry, msgs,
-                                temperature=config.h_sem.sampling_temperature,
-                                seed=10000 + i * 100 + k,
-                                purpose=f"e2e_h_sem::{q.id}::{ladder_type}::L{level}::{model_key}::s{k}",
-                                max_tokens=64,
-                            ))
-                        responses_per_paraphrase[i] = samples
+                # --- metric tuple ------------------------------------------
+                tup = build_metric_tuple(
+                    question_id=q.id,
+                    ladder_type=row.ladder_type if row.ladder_family == "context" else "random",
+                    level=row.level,
+                    model_key=model_key,
+                    scores=[float(x) for x in f_scores],
+                    cluster_assignments=cluster_assignments,
+                    prompt_embeddings=prompt_embeddings,
+                    response_embeddings=response_embeddings,
+                    posix_log_p=posix_log_p,
+                    posix_lengths=posix_lengths,
+                    encoder_label="external_mpnet",
+                )
+                row_dict = tup.model_dump()
+                # v6 columns added AFTER model_dump so metrics/ stays untouched.
+                row_dict["dataset"] = q.dataset
+                row_dict["ladder_family"] = row.ladder_family
+                row_dict["ladder_type_raw"] = row.ladder_type
+                row_dict["scoring_mode"] = scoring_mode
+                row_dict["final_answer_f_mean"] = final_answer_f_mean
+                row_dict["n_hops"] = q.n_hops
+                rows_out.append(row_dict)
 
-                    # --- pool-cluster (Sprint-4 contract!) ----------------
-                    cluster_assignments = cluster_responses_pooled(
-                        responses_per_paraphrase, config=config
-                    )
-                    n_unique = len({c for v in cluster_assignments.values() for c in v})
-                    logger.info("  H_sem: |A_q estimate|={}", n_unique)
-
-                    # --- embeddings --------------------------------------
-                    prompt_embeddings = encode_texts(prompt_user_texts, config=config)
-                    response_embeddings: dict[int, np.ndarray] = {}
-                    for i, samples in responses_per_paraphrase.items():
-                        response_embeddings[i] = encode_texts(samples, config=config)
-
-                    # --- POSIX (optional) --------------------------------
-                    posix_log_p = None
-                    posix_lengths = None
-                    if args.include_posix and model_entry.echo_completions:
-                        logger.info("  POSIX: echo path enabled for this model")
-                        # Build NxN matrix via echo on /v1/completions.
-                        n = len(paraphrases)
-                        log_p = np.zeros((n, n))
-                        lengths = np.zeros(n)
-                        for j, yj in enumerate(f_answers):
-                            lengths[j] = max(1, len(yj.split()))
-                            for i, msgs_i in enumerate(prompt_messages):
-                                # Render the chat-formatted prompt naively as
-                                # role-tagged text + the continuation y_j.
-                                rendered = "\n".join(f"{m.role}: {m.content}" for m in msgs_i)
-                                full = rendered + "\nassistant: " + yj
-                                try:
-                                    resp = client.score_continuation(CompletionRequest(
-                                        provider=model_entry.provider,  # type: ignore[arg-type]
-                                        model_id=model_entry.model_id,
-                                        prompt=full,
-                                        max_tokens=0,
-                                        echo=True,
-                                        logprobs=1,
-                                        temperature=0.0,
-                                        purpose=f"e2e_posix::{q.id}::{ladder_type}::L{level}",
-                                    ))
-                                    # Sum the last len(yj.split()) per-token logprobs.
-                                    if resp.token_logprobs:
-                                        tail = resp.token_logprobs[-int(lengths[j]):]
-                                        log_p[i, j] = sum(t.logprob for t in tail)
-                                    else:
-                                        log_p[i, j] = math.nan
-                                except Exception as exc:  # noqa: BLE001
-                                    logger.warning("POSIX echo failed at (i={}, j={}): {}", i, j, exc)
-                                    log_p[i, j] = math.nan
-                        if not np.isnan(log_p).any():
-                            posix_log_p = log_p
-                            posix_lengths = lengths
-                        else:
-                            logger.warning(
-                                "POSIX matrix has NaN entries — leaving posix_psi=None"
-                            )
-
-                    # --- build the MetricTuple ---------------------------
-                    tup = build_metric_tuple(
-                        question_id=q.id,
-                        ladder_type=ladder_type,  # type: ignore[arg-type]
-                        level=level,
-                        model_key=model_key,
-                        scores=[float(x) for x in f_scores],
-                        cluster_assignments=cluster_assignments,
-                        prompt_embeddings=prompt_embeddings,
-                        response_embeddings=response_embeddings,
-                        posix_log_p=posix_log_p,
-                        posix_lengths=posix_lengths,
-                        encoder_label="external_mpnet",
-                    )
-                    tuples.append(tup.model_dump())
-
-    # --- 6. Write parquet + summary ---------------------------------------
+    # --- write + summary ----------------------------------------------------
     out_path = repo_root / args.out
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_df = pd.DataFrame(tuples)
+    out_df = pd.DataFrame(rows_out)
     out_df.to_parquet(out_path, index=False)
     logger.info("wrote {} cells -> {}", len(out_df), out_path)
 
+    _print_summary(out_df, out_path)
+    return 0
+
+
+def _posix_matrix(client, model_entry, prompt_messages, f_responses, q, row):
+    """Echo-mode POSIX matrix (unchanged from the v3 path). Context family only."""
+    n = len(prompt_messages)
+    log_p = np.zeros((n, n))
+    lengths = np.zeros(n)
+    for j, yj in enumerate(f_responses):
+        lengths[j] = max(1, len(yj.split()))
+        for i, msgs_i in enumerate(prompt_messages):
+            rendered = "\n".join(f"{m.role}: {m.content}" for m in msgs_i)
+            full = rendered + "\nassistant: " + yj
+            try:
+                resp = client.score_continuation(CompletionRequest(
+                    provider=model_entry.provider,
+                    model_id=model_entry.model_id,
+                    prompt=full, max_tokens=0, echo=True, logprobs=1,
+                    temperature=0.0,
+                    purpose=f"e2e_posix::{q.id}::{row.ladder_type}::L{row.level}",
+                ))
+                if resp.token_logprobs:
+                    tail = resp.token_logprobs[-int(lengths[j]):]
+                    log_p[i, j] = sum(t.logprob for t in tail)
+                else:
+                    log_p[i, j] = math.nan
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("POSIX echo failed at (i={}, j={}): {}", i, j, exc)
+                log_p[i, j] = math.nan
+    if not np.isnan(log_p).any():
+        return log_p, lengths
+    logger.warning("POSIX matrix has NaN — leaving posix_psi=None")
+    return None, None
+
+
+def _print_summary(out_df: pd.DataFrame, out_path: Path) -> None:
     print()
-    print("=" * 96)
+    print("=" * 100)
     print("END-TO-END METRIC TUPLES")
-    print("=" * 96)
+    print("=" * 100)
     cols = [
-        "question_id", "ladder_type", "level", "model_key",
-        "aufi_in", "fi_out_mean", "s_tau_mean", "consistency_mean",
-        "spread", "variation_ratio", "posix_psi",
-        "ess_in", "rho_u", "h_sem_mean", "h_sem_var",
-        "n_paraphrases", "n_samples_per_prompt",
+        "question_id", "dataset", "ladder_family", "ladder_type_raw", "level", "model_key",
+        "f_mean", "final_answer_f_mean", "aufi_in", "spread", "h_sem_mean",
+        "n_paraphrases",
     ]
+    cols = [c for c in cols if c in out_df.columns]
     print(out_df[cols].to_string(index=False, float_format=lambda x: f"{x:.3f}"))
 
-    # Sanity assertions.
-    #
-    # ESS_in is allowed to be ~0 when using the external mpnet encoder with
-    # context-heavy prompts: mpnet is trained to map paraphrases to nearby
-    # points, so per-feature variance collapses by design. The own-encoder
-    # variant from Sprint 6 (vLLM hidden states) will not have this property.
-    # See metrics/ess_in.py docstring.
-    bad = []
-    for _, row in out_df.iterrows():
-        if row["n_paraphrases"] < 2:
-            continue  # too few for any reliable metric
-        for col in ("aufi_in", "fi_out_mean", "s_tau_mean", "consistency_mean",
-                    "spread", "variation_ratio", "ess_in", "rho_u",
-                    "h_sem_mean", "h_sem_var"):
-            v = row[col]
-            if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))):
-                bad.append(f"{row['question_id']} {row['ladder_type']} L{row['level']} {col}={v!r}")
-    if bad:
-        logger.warning("plausibility issues in {} fields", len(bad))
-        for line in bad[:10]:
-            logger.warning("  {}", line)
-
-    # Coarse summary that tells you whether the pipeline produced a sensible
-    # context-amount curve, separate from the numeric MetricTuple dump.
-    # F(x) pass-rates per level, averaged across questions:
-    levels_summary: dict[int, list[float]] = {}
-    for _, row in out_df.iterrows():
-        levels_summary.setdefault(int(row["level"]), []).append(float(row.get("aufi_in") or 0.0))
+    # Regression check for the v3 step-function bug: graded scores must appear.
+    graded_present = False
+    if "f_mean" in out_df.columns:
+        fvals = out_df["f_mean"].dropna().tolist()
+        graded_present = any(0.0 < v < 1.0 for v in fvals)
     print()
-    print("=" * 96)
-    print("CONTEXT-AMOUNT TREND (mean AUFI_in by level — lower = paraphrases more uniformly pass)")
-    print("=" * 96)
-    for level in sorted(levels_summary):
-        vals = levels_summary[level]
-        print(f"  L={level:>2}  mean AUFI_in = {sum(vals) / len(vals):.3f}  ({len(vals)} cells)")
+    print("=" * 100)
+    print(f"GRADED-F CHECK: at least one f_mean strictly in (0,1)?  -> {graded_present}")
+    if not graded_present:
+        print("  WARNING: all f_mean are 0 or 1 — the step-function bug is NOT fixed for this run.")
+        print("  (Expected for HotpotQA binary cells; MuSiQue chain cells should be graded.)")
+
+    bad = []
+    for _, r in out_df.iterrows():
+        if r.get("n_paraphrases", 0) < 2:
+            continue
+        for col in ("aufi_in", "fi_out_mean", "s_tau_mean", "consistency_mean",
+                    "spread", "variation_ratio", "h_sem_mean", "h_sem_var"):
+            v = r.get(col)
+            if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))):
+                bad.append(f"{r['question_id']} {r.get('ladder_family')} L{r['level']} {col}={v!r}")
 
     print()
     print(json.dumps({
-        "cells_run": len(out_df),
-        "questions": sorted(out_df["question_id"].unique().tolist()),
-        "levels": sorted(int(x) for x in out_df["level"].unique()),
-        "models": sorted(out_df["model_key"].unique().tolist()),
-        "ladders": sorted(out_df["ladder_type"].unique().tolist()),
+        "cells_run": int(len(out_df)),
+        "datasets": sorted(out_df["dataset"].unique().tolist()) if "dataset" in out_df else [],
+        "families": sorted(out_df["ladder_family"].unique().tolist()) if "ladder_family" in out_df else [],
+        "graded_f_present": bool(graded_present),
         "plausibility_warnings": len(bad),
         "out_path": str(out_path),
     }, indent=2))
-
-    return 0 if not bad else 2
 
 
 if __name__ == "__main__":

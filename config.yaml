@@ -17,13 +17,32 @@ sampling:
     split: validation
     hf_dataset: "framolfese/2WikiMultihopQA"
     hf_config: null
+  # v6 PRIMARY dataset for graded chain-completion scoring (Dataset_Evaluation_v6).
+  # Source: official jsonl from StonyBrookNLP/musique `download_data.sh` placed
+  # under data/raw/musique/, OR a HF mirror. The loader tries local jsonl first,
+  # then `hf_dataset`. MuSiQue-Ans (answerable) variant only.
+  musique:
+    n_questions: 50
+    stratify_by: type           # {2hop, 3hop, 4hop} (derived from hop count)
+    split: validation            # mapped to MuSiQue's "dev" jsonl by the loader
+    hf_dataset: "dgslibisey/MuSiQue"   # community mirror; override if needed
+    hf_config: null
+    local_path: null             # e.g. "data/raw/musique/musique_ans_v1.0_dev.jsonl"
 
 # §4 — three-ladder construction.
 ladders:
-  levels: [0, 2, 4, 6, 8, 10]    # number of paragraphs in prompt at each level
-  k_gold: 2                       # all questions in HotpotQA / 2WikiMultihopQA have 2 gold paragraphs
-  n_total_paragraphs: 10
+  # CONTEXT-ladder levels = number of paragraphs in the prompt at each rung.
+  # For HotpotQA (10 paragraphs) these are the full pool. MuSiQue has ~20
+  # paragraphs; {0,2,4,6,8,10} is a PREFIX over that larger pool (the gold
+  # paragraphs sit among the first ~10 after gold-first ordering). Widen to
+  # [0, 4, 8, 12, 16, 20] if you want to sweep the full MuSiQue pool.
+  levels: [0, 2, 4, 6, 8, 10]
+  k_gold: 2                       # HotpotQA / 2Wiki have 2 gold; MuSiQue has 2-4 (n_hops)
+  n_total_paragraphs: 10          # HotpotQA fixed pool; ladder builders use len(paragraphs) dynamically
   variants: [random, gold_first, distractor_first]
+  # v6 dual-ladder: "context" feeds paragraphs, "reasoning" feeds decomposition
+  # hops 0..k-1 (final hop withheld). Run both on MuSiQue and compare curves.
+  families: [context, reasoning]
 
 # §3.1 — paraphrase universe per question.
 paraphrases:
@@ -140,6 +159,15 @@ scoring:
   entail_threshold: 0.7
   contradict_threshold: 0.5
   exact_match_appendix_only: true
+  # v6 graded chain-completion (MuSiQue). null => reuse the binary thresholds
+  # above. Set explicitly if hop recovery should use a different bar.
+  chain_entail_threshold: null
+  chain_contradict_threshold: null
+
+# v6 — model generation token budgets (separate from paraphrase generation).
+generation:
+  answer_max_tokens: 64             # baseline "answer briefly" responses
+  cot_max_tokens: 512               # CoT responses need room for a full chain
 
 # §3 — H_sem clustering (Farquhar 2024 Nature).
 h_sem:
