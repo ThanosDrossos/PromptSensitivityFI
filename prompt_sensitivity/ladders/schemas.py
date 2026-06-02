@@ -14,7 +14,10 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-LadderType = Literal["random", "gold_first", "distractor_first"]
+# Context ladders order paragraphs; the reasoning ladder feeds decomposition
+# hops. `ladder_family` separates the two manipulations (v6 §5).
+LadderType = Literal["random", "gold_first", "distractor_first", "reasoning"]
+LadderFamily = Literal["context", "reasoning"]
 
 
 class LadderRow(BaseModel):
@@ -24,12 +27,21 @@ class LadderRow(BaseModel):
 
     question_id: str
     ladder_type: LadderType
-    level_idx: int = Field(ge=0, le=5)        # 0..5, position in the {0,2,4,6,8,10} sequence
-    level: int = Field(ge=0)                  # number of paragraphs at this level
+    # Position in the level sequence. Was hardcoded le=5 for the 6-rung
+    # {0,2,4,6,8,10} context ladder; relaxed because the reasoning ladder has
+    # n_hops rungs (variable) and MuSiQue context sweeps may use more levels.
+    level_idx: int = Field(ge=0)
+    level: int = Field(ge=0)                  # #paragraphs (context) or #hops fed (reasoning)
     paragraph_indices: list[int] = Field(default_factory=list)
     paragraph_titles: list[str] = Field(default_factory=list)
     gold_count: int = Field(ge=0)             # how many gold paragraphs in this prefix
     permutation: list[int] | None = None      # for random: the full per-question shuffle
+    # v6: which manipulation this row belongs to. Defaults to "context" so the
+    # existing three context ladders are unchanged.
+    ladder_family: LadderFamily = "context"
+    # Reasoning ladder only: number of decomposition hops handed to the model
+    # as scaffold at this rung (0..n_hops-1; final hop always withheld).
+    hops_provided: int | None = None
 
 
 class LevelSlice(BaseModel):

@@ -1,11 +1,14 @@
-"""F(x) scoring — NLI-with-gold (Sprint 5).
+"""F(x) scoring.
 
-Per the brief's anti-pattern rule: NEVER exact-match. Use NLI-with-gold
-asymmetric: gold entails answer >= 0.7 AND not-contradicts.
+Two scoring paths:
 
-Exposed:
-  - `score_nli_with_gold(gold, answer, *, config) -> NLIScoreResult`
-  - `f_score(...) -> int`   # 0/1 wrapper for the metric stack
+  - BINARY final-answer (`nli_with_gold`): NLI-with-gold asymmetric, gold
+    entails answer >= 0.7 AND not-contradicts. Used for HotpotQA / 2Wiki and
+    kept as a secondary number for MuSiQue. NEVER exact-match (Hua 2025).
+
+  - GRADED chain-completion (`chain_score`): fraction of MuSiQue reasoning
+    hops the model recovers. Primary F for MuSiQue (v6 §2) — makes the
+    FI_in curve graded instead of a step function.
 """
 
 from .nli_with_gold import (
@@ -16,6 +19,13 @@ from .nli_with_gold import (
     f_score_batch,
     exact_match_score,
 )
+from .chain_score import (
+    chain_completion_score,
+    chain_completion_score_batch,
+    chain_fraction,
+    build_fact_statements,
+    resolve_placeholders,
+)
 
 __all__ = [
     "NLIScoreResult",
@@ -24,4 +34,9 @@ __all__ = [
     "f_score",
     "f_score_batch",
     "exact_match_score",
+    "chain_completion_score",
+    "chain_completion_score_batch",
+    "chain_fraction",
+    "build_fact_statements",
+    "resolve_placeholders",
 ]

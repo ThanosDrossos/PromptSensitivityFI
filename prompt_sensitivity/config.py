@@ -30,11 +30,17 @@ class SamplingDatasetConfig(_Frozen):
     split: str
     hf_dataset: str
     hf_config: str | None
+    # MuSiQue may be loaded from a local jsonl (the canonical release) instead
+    # of a HF mirror. Optional + default None keeps HotpotQA / 2Wiki unchanged.
+    local_path: str | None = None
 
 
 class SamplingConfig(_Frozen):
     hotpotqa: SamplingDatasetConfig
     twiki: SamplingDatasetConfig
+    # v6: MuSiQue is the primary graded-scoring dataset. Optional so existing
+    # configs without a `musique` block still validate.
+    musique: SamplingDatasetConfig | None = None
 
 
 class LadderConfig(_Frozen):
@@ -42,6 +48,9 @@ class LadderConfig(_Frozen):
     k_gold: int
     n_total_paragraphs: int
     variants: list[str]
+    # v6: optional family selector. The context ladder uses `levels` over the
+    # paragraph pool; the reasoning ladder feeds decomposition hops 0..k-1.
+    families: list[str] = Field(default_factory=lambda: ["context"])
 
 
 class NLIConfig(_Frozen):
@@ -95,6 +104,19 @@ class ScoringConfig(_Frozen):
     entail_threshold: float
     contradict_threshold: float
     exact_match_appendix_only: bool
+    # v6 graded chain-completion. Default None => reuse the binary thresholds
+    # above (the chain scorer reads entail_threshold / contradict_threshold).
+    chain_entail_threshold: float | None = None
+    chain_contradict_threshold: float | None = None
+
+
+class GenerationConfig(_Frozen):
+    """Token budgets for model generation. Separate from paraphrase generation."""
+
+    # Baseline "answer briefly" responses are short.
+    answer_max_tokens: int = 64
+    # CoT responses must fit a full reasoning chain — 64 is far too small.
+    cot_max_tokens: int = 512
 
 
 class HSemConfig(_Frozen):
@@ -145,6 +167,9 @@ class Config(_Frozen):
     paraphrases: ParaphraseConfig
     models: dict[str, ModelEntry] = Field(default_factory=dict)
     scoring: ScoringConfig
+    # v6 token budgets. Optional with all-default fields so configs without a
+    # `generation` block still validate.
+    generation: GenerationConfig = Field(default_factory=GenerationConfig)
     h_sem: HSemConfig
     bootstrap: BootstrapConfig
     embedding: EmbeddingConfig

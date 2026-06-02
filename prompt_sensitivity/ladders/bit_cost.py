@@ -83,6 +83,32 @@ def b_theo_table(N: int, K: int, levels: Iterable[int]) -> list[dict]:
     return rows
 
 
+def expected_hop_coverage(N: int, n_hops: int, l: int) -> float:
+    """Expected chain-completion fraction under a random size-l paragraph subset.
+
+    v6 replacement for `b_theo` on the GRADED path. The old `b_theo` modelled
+    binary "gold present => success", which no longer fits per-hop graded F.
+    Here each of the `n_hops` hops has one supporting paragraph; the
+    probability that a given hop's supporting paragraph lands in a random
+    size-l subset of N paragraphs is l/N (single-item hypergeometric). With
+    one supporting paragraph per hop, the EXPECTED fraction of hops whose
+    supporting paragraph is present is the mean over hops:
+
+        E[chain fraction] = (1/n_hops) * sum_hops P(hop's paragraph in subset)
+                          = l / N          (identical per hop)
+
+    This is the theoretical context-ladder analogue of the observed
+    chain-completion F. It rises linearly from 0 (l=0) to 1 (l=N), in contrast
+    to `b_theo`'s log-scale surprise. Returns a fraction in [0, 1], NOT bits.
+
+    Edge cases: N<=0 or n_hops<=0 -> 0.0; l clamped to [0, N].
+    """
+    if N <= 0 or n_hops <= 0:
+        return 0.0
+    l = max(0, min(l, N))
+    return l / N
+
+
 def b_emp(u_above: int, u_below: int) -> float:
     """Empirical bit-cost: log2(|U_above| / |U_below|).
 

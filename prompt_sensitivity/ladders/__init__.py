@@ -10,23 +10,28 @@ Public API:
   - `b_emp(u_above, u_below)`        - empirical bit-cost from F-score subsets.
 """
 
-from .schemas import LadderRow, LadderType, LevelSlice
+from .schemas import LadderRow, LadderType, LadderFamily, LevelSlice
 from .random_ladder import build_random_ladder, random_permutation
 from .gold_first_ladder import build_gold_first_ladder
 from .distractor_first_ladder import build_distractor_first_ladder
-from .bit_cost import b_theo, b_theo_table, b_emp
+from .reasoning_ladder import build_reasoning_ladder, render_reasoning_scaffold
+from .bit_cost import b_theo, b_theo_table, b_emp, expected_hop_coverage
 
 __all__ = [
     "LadderRow",
     "LadderType",
+    "LadderFamily",
     "LevelSlice",
     "build_random_ladder",
     "random_permutation",
     "build_gold_first_ladder",
     "build_distractor_first_ladder",
+    "build_reasoning_ladder",
+    "render_reasoning_scaffold",
     "b_theo",
     "b_theo_table",
     "b_emp",
+    "expected_hop_coverage",
 ]
 
 
