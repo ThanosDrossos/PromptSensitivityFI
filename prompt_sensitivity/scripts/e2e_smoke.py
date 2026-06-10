@@ -155,22 +155,55 @@ def _pick_musique_questions(config, n: int) -> list[MultiHopQuestion]:
     return all_mq[:n]
 
 
+_MUSIQUE_PARAPHRASE_PARQUET = "data/paraphrases_musique.parquet"
+
+
 def _generate_musique_paraphrases(
     config, questions: list[MultiHopQuestion], max_paraphrases: int
 ) -> dict[str, list[str]]:
-    """Generate each question's paraphrase universe live via the Sprint-2 pipeline.
+    """Generate (and persist) each question's paraphrase universe.
 
-    Cached. Questions that yield no paraphrases fall back to the original
-    question text as a singleton universe (graded chain scoring still produces
-    a non-trivial F).
+    Persistence: accepted paraphrases are saved to data/paraphrases_musique.parquet.
+    On a later run (e.g. resuming the full pilot), questions already in that
+    parquet are loaded from disk instead of regenerated — this skips the
+    ~1.5 h of local NLI filtering that paraphrase generation costs on CPU.
+
+    Questions that yield no paraphrases fall back to the original question text
+    as a singleton universe (graded chain scoring still produces a non-trivial F).
     """
     from ..paraphrases.pipeline import build_paraphrase_set
 
+    repo_root = config.repo_root()
+    parquet_path = repo_root / _MUSIQUE_PARAPHRASE_PARQUET
+
+    # Load any previously-persisted paraphrases.
+    persisted: dict[str, list[str]] = {}
+    if parquet_path.exists():
+        try:
+            prev = pd.read_parquet(parquet_path)
+            prev = prev[prev["outcome"] == "accepted"]
+            for qid, sub in prev.groupby("question_id"):
+                persisted[str(qid)] = sub.sort_values("paraphrase_idx")["text"].tolist()
+            logger.info("loaded persisted MuSiQue paraphrases for {} questions", len(persisted))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("could not read {} ({}); regenerating", parquet_path, exc)
+
     paraphrases: dict[str, list[str]] = {}
+    new_rows: list[dict] = []
     for q in questions:
+        if q.id in persisted and persisted[q.id]:
+            paraphrases[q.id] = persisted[q.id][:max_paraphrases]
+            logger.info("qid={} paraphrases from cache ({})", q.id, len(paraphrases[q.id]))
+            continue
         try:
             pset = build_paraphrase_set(q.id, q.question, config=config, gold_answer=q.answer)
-            texts = [ap.text for ap in pset.accepted][:max_paraphrases]
+            accepted = list(pset.accepted)
+            texts = [ap.text for ap in accepted][:max_paraphrases]
+            for idx, ap in enumerate(accepted):
+                new_rows.append({
+                    "question_id": q.id, "outcome": "accepted",
+                    "paraphrase_idx": idx, "text": ap.text,
+                })
         except Exception as exc:  # noqa: BLE001
             logger.warning("paraphrase gen failed for {}: {}", q.id, exc)
             texts = []
@@ -178,6 +211,19 @@ def _generate_musique_paraphrases(
             logger.warning("qid={} no paraphrases; using original question as singleton", q.id)
             texts = [q.question]
         paraphrases[q.id] = texts
+
+    # Persist newly-generated paraphrases (append to any existing file).
+    if new_rows:
+        df_new = pd.DataFrame(new_rows)
+        if parquet_path.exists():
+            try:
+                df_new = pd.concat([pd.read_parquet(parquet_path), df_new], ignore_index=True)
+            except Exception:  # noqa: BLE001
+                pass
+        parquet_path.parent.mkdir(parents=True, exist_ok=True)
+        df_new.to_parquet(parquet_path, index=False)
+        logger.info("persisted {} new MuSiQue paraphrase rows -> {}", len(new_rows), parquet_path)
+
     return paraphrases
 
 
