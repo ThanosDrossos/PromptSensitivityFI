@@ -12,7 +12,8 @@ param(
         "diagnose-paraphrases", "build-ladders", "smoke-metrics",
         "e2e-smoke", "e2e-smoke-dry",
         "paraphrases-extend-5", "pilot", "pilot-full",
-        "pilot-musique", "pilot-musique-dry",
+        "pilot-musique", "pilot-musique-dry", "pilot-musique-fast",
+        "show-results",
         "plot-pilot", "plot-smoke",
         "sprint1-no-api", "sprint1-verify",
         "clean"
@@ -115,6 +116,22 @@ switch ($Target) {
             --musique-direct 5 --families "context,reasoning" `
             --ladders "random,gold_first,distractor_first" --levels "0,4,10" `
             --models "gpt_4o" --dry-run
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
+    "pilot-musique-fast" {
+        # FAST first-look: singleton + fast, minutes on CPU, resumable.
+        uv run python -m prompt_sensitivity.scripts.e2e_smoke `
+            --musique-direct 3 `
+            --families "context,reasoning" `
+            --ladders "random" `
+            --levels "0,4,10" `
+            --models "gpt_4o" `
+            --singleton --fast `
+            --out data/pilot_musique.parquet
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
+    "show-results" {
+        uv run python -m prompt_sensitivity.scripts.show_results --plot
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
     "plot-pilot" {

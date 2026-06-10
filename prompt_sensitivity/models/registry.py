@@ -36,7 +36,7 @@ from typing import Any
 from dotenv import load_dotenv
 from tenacity import (
     retry,
-    retry_if_exception_type,
+    retry_if_exception,
     stop_after_attempt,
     wait_exponential,
     before_sleep_log,
@@ -65,6 +65,57 @@ def _bucket(provider: str, qps: float) -> TokenBucket:
 
 # Exceptions classes considered transient for retry purposes.
 _TRANSIENT: tuple[type[BaseException], ...] = (TimeoutError, ConnectionError)
+
+# Substrings that mark a gateway-side hiccup dressed up as a non-retryable
+# status (LiteLLM sometimes returns a 400 whose body is actually an upstream
+# connection error, e.g. "Open WebUI: Server Connection Error"). When any of
+# these appear in the exception text we retry rather than abort the whole run.
+_TRANSIENT_MESSAGE_MARKERS: tuple[str, ...] = (
+    "server connection error",
+    "connection error",
+    "bad gateway",
+    "service unavailable",
+    "gateway timeout",
+    "temporarily unavailable",
+    "overloaded",
+    "internal server error",
+    "502",
+    "503",
+    "504",
+    "timeout",
+)
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """Retry predicate: transient network/gateway errors, not genuine 4xx.
+
+    Covers:
+      - plain TimeoutError / ConnectionError;
+      - the openai SDK transient classes (connection, timeout, rate-limit,
+        5xx) loaded lazily so import stays cheap;
+      - any exception whose message contains a known transient marker (the
+        LiteLLM "400 wrapping a connection error" case that aborted the
+        2026-06-10 run).
+    """
+    if isinstance(exc, _TRANSIENT):
+        return True
+    try:
+        import openai  # noqa: WPS433
+
+        if isinstance(
+            exc,
+            (
+                openai.APIConnectionError,
+                openai.APITimeoutError,
+                openai.InternalServerError,
+                openai.RateLimitError,
+            ),
+        ):
+            return True
+    except Exception:  # noqa: BLE001 — openai always present, but be safe
+        pass
+    text = str(getattr(exc, "message", "") or exc).lower()
+    return any(marker in text for marker in _TRANSIENT_MESSAGE_MARKERS)
 
 
 class BaseLLMClient(ABC):
@@ -173,7 +224,7 @@ class BaseLLMClient(ABC):
                 min=api.initial_backoff_s,
                 max=api.max_backoff_s,
             ),
-            retry=retry_if_exception_type(_TRANSIENT),
+            retry=retry_if_exception(_is_retryable),
             before_sleep=before_sleep_log(logger, "WARNING"),  # type: ignore[arg-type]
             reraise=True,
         )

@@ -5,7 +5,8 @@
         paraphrases paraphrases-smoke export-annotation compute-kappa \
         diagnose-paraphrases build-ladders smoke-metrics e2e-smoke \
         pilot plot-pilot paraphrases-extend-5 pilot-full \
-        pilot-musique pilot-musique-dry e2e-smoke-dry
+        pilot-musique pilot-musique-dry pilot-musique-fast \
+        show-results e2e-smoke-dry
 
 install:
 	uv sync --all-extras
@@ -133,6 +134,24 @@ pilot-musique-dry:
 		--musique-direct 5 --families "context,reasoning" \
 		--ladders "random,gold_first,distractor_first" --levels "0,4,10" \
 		--models "gpt_4o" --dry-run
+
+# FAST first-look on CPU: 3 MuSiQue questions, ONE context ladder + reasoning,
+# --singleton (no paraphrase gen) + --fast (no H_sem clustering). Finishes in
+# minutes on CPU. Shows the graded chain-F dual-ladder curve. Resumable +
+# checkpointed, so it's safe to Ctrl-C. Output: data/pilot_musique.parquet.
+pilot-musique-fast:
+	uv run python -m prompt_sensitivity.scripts.e2e_smoke \
+		--musique-direct 3 \
+		--families "context,reasoning" \
+		--ladders "random" \
+		--levels "0,4,10" \
+		--models "gpt_4o" \
+		--singleton --fast \
+		--out data/pilot_musique.parquet
+
+# Print whatever results exist (works mid-run thanks to checkpointing) + a PNG.
+show-results:
+	uv run python -m prompt_sensitivity.scripts.show_results --plot
 
 # Read data/e2e_metrics.parquet (default) or data/pilot_metrics.parquet
 # and generate plots + REPORT.md under data/plots/.

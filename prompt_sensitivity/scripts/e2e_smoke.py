@@ -283,6 +283,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--n-questions", type=int, default=5)
     parser.add_argument("--musique-direct", type=int, default=0,
                         help="Sample N MuSiQue questions directly (live paraphrase gen).")
+    parser.add_argument(
+        "--singleton", action="store_true",
+        help="MuSiQue-direct: skip paraphrase generation, use the original "
+             "question as a 1-element universe. FI_in degenerates but the "
+             "chain-F vs level curve appears in minutes (good for a first look).",
+    )
     parser.add_argument("--paraphrases", type=str, default=None)
     parser.add_argument("--models", type=str, default="gpt_4o")
     parser.add_argument("--ladders", type=str, default="random")
@@ -293,6 +299,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--max-paraphrases", type=int, default=10)
     parser.add_argument("--out", type=str, default="data/e2e_metrics.parquet")
     parser.add_argument("--include-posix", action="store_true")
+    parser.add_argument(
+        "--fast", action="store_true",
+        help="Skip H_sem clustering / embeddings / POSIX (FI_in + f_mean only). "
+             "Removes the biggest CPU cost; ~10x faster per cell.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -390,140 +401,210 @@ def main() -> int:
         }, indent=2))
         return 0
 
-    # MuSiQue-direct: generate the paraphrase universe live (network) now that
-    # we're past the dry-run gate.
+    # MuSiQue-direct: build the paraphrase universe now that we're past the
+    # dry-run gate. --singleton skips live generation for a fast first look.
     if musique_direct:
-        accepted = _generate_musique_paraphrases(config, questions, args.max_paraphrases)
+        if args.singleton:
+            logger.info("--singleton: using original question as the universe (no paraphrase gen)")
+            accepted = {q.id: [q.question] for q in questions}
+        else:
+            accepted = _generate_musique_paraphrases(config, questions, args.max_paraphrases)
         cell_rows_by_q = {q.id: _build_cell_rows(q, families, ladders, levels) for q in questions}
-
-    from ..metrics.h_sem import cluster_responses_pooled
 
     answer_max = config.generation.answer_max_tokens
     cot_max = config.generation.cot_max_tokens
 
-    rows_out: list[dict] = []
-    for q in questions:
-        paraphrases = accepted[q.id]
-        use_cot = q.has_decomposition()
-        scoring_mode = "chain_completion" if use_cot else "binary_nli"
-        for row in cell_rows_by_q[q.id]:
-            for model_key in models:
-                model_entry = config.models[model_key]
-                client = get_client(model_key, config)
-                logger.info(
-                    "cell qid={} ds={} family={} ladder={} level={} model={} N={} mode={}",
-                    q.id, q.dataset, row.ladder_family, row.ladder_type, row.level,
-                    model_key, len(paraphrases), scoring_mode,
-                )
-
-                # --- prompts -----------------------------------------------
-                prompt_messages = [
-                    _assemble_messages(q, p, row, use_cot=use_cot) for p in paraphrases
-                ]
-                prompt_user_texts = [m[1].content for m in prompt_messages]
-                gen_max = cot_max if use_cot else answer_max
-
-                # --- F(x) at T=0 -------------------------------------------
-                f_responses: list[str] = []
-                for i, msgs in enumerate(prompt_messages):
-                    f_responses.append(_sample_response(
-                        client, model_entry, msgs,
-                        temperature=0.0, seed=42,
-                        purpose=f"e2e_f::{q.id}::{row.ladder_type}::L{row.level}::{model_key}",
-                        max_tokens=gen_max,
-                    ))
-
-                if use_cot:
-                    # PRIMARY graded F = chain-completion fraction.
-                    f_scores = chain_completion_score_batch(
-                        q.question_decomposition, f_responses, config=config
-                    )
-                    # SECONDARY binary final-answer F (parse the Answer: line).
-                    final_answers = [parse_answer_line(r) for r in f_responses]
-                    final_binary = f_score_batch(q.answer, final_answers, config=config)
-                    final_answer_f_mean = float(np.mean(final_binary)) if final_binary else None
-                    logger.info(
-                        "  chain F: mean={:.3f} values={}  final-answer F mean={:.3f}",
-                        float(np.mean(f_scores)) if f_scores else 0.0,
-                        [round(s, 2) for s in f_scores[:5]],
-                        final_answer_f_mean or 0.0,
-                    )
-                else:
-                    f_scores = [float(x) for x in f_score_batch(q.answer, f_responses, config=config)]
-                    final_answer_f_mean = float(np.mean(f_scores)) if f_scores else None
-                    logger.info(
-                        "  binary F: pass={}/{}", int(sum(f_scores)), len(f_scores)
-                    )
-
-                # --- H_sem samples -----------------------------------------
-                responses_per_paraphrase: dict[int, list[str]] = {}
-                for i, msgs in enumerate(prompt_messages):
-                    samples: list[str] = []
-                    for kk in range(args.k_samples):
-                        samples.append(_sample_response(
-                            client, model_entry, msgs,
-                            temperature=config.h_sem.sampling_temperature,
-                            seed=10000 + i * 100 + kk,
-                            purpose=f"e2e_hsem::{q.id}::{row.ladder_type}::L{row.level}::{model_key}::s{kk}",
-                            max_tokens=gen_max,
-                        ))
-                    responses_per_paraphrase[i] = samples
-
-                cluster_assignments = cluster_responses_pooled(
-                    responses_per_paraphrase, config=config
-                )
-
-                # --- embeddings --------------------------------------------
-                prompt_embeddings = encode_texts(prompt_user_texts, config=config)
-                response_embeddings: dict[int, np.ndarray] = {}
-                for i, samples in responses_per_paraphrase.items():
-                    response_embeddings[i] = encode_texts(samples, config=config)
-
-                # --- POSIX (context family only; optional) -----------------
-                posix_log_p = None
-                posix_lengths = None
-                if (
-                    args.include_posix
-                    and model_entry.echo_completions
-                    and row.ladder_family == "context"
-                ):
-                    posix_log_p, posix_lengths = _posix_matrix(
-                        client, model_entry, prompt_messages, f_responses, q, row
-                    )
-
-                # --- metric tuple ------------------------------------------
-                tup = build_metric_tuple(
-                    question_id=q.id,
-                    ladder_type=row.ladder_type if row.ladder_family == "context" else "random",
-                    level=row.level,
-                    model_key=model_key,
-                    scores=[float(x) for x in f_scores],
-                    cluster_assignments=cluster_assignments,
-                    prompt_embeddings=prompt_embeddings,
-                    response_embeddings=response_embeddings,
-                    posix_log_p=posix_log_p,
-                    posix_lengths=posix_lengths,
-                    encoder_label="external_mpnet",
-                )
-                row_dict = tup.model_dump()
-                # v6 columns added AFTER model_dump so metrics/ stays untouched.
-                row_dict["dataset"] = q.dataset
-                row_dict["ladder_family"] = row.ladder_family
-                row_dict["ladder_type_raw"] = row.ladder_type
-                row_dict["scoring_mode"] = scoring_mode
-                row_dict["final_answer_f_mean"] = final_answer_f_mean
-                row_dict["n_hops"] = q.n_hops
-                rows_out.append(row_dict)
-
-    # --- write + summary ----------------------------------------------------
     out_path = repo_root / args.out
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_df = pd.DataFrame(rows_out)
-    out_df.to_parquet(out_path, index=False)
-    logger.info("wrote {} cells -> {}", len(out_df), out_path)
 
-    _print_summary(out_df, out_path)
-    return 0
+    # --- RESUME: load any already-computed cells so a crash/restart skips them.
+    rows_out: list[dict] = []
+    done_keys: set[tuple] = set()
+    if out_path.exists():
+        try:
+            prev = pd.read_parquet(out_path)
+            rows_out = prev.to_dict("records")
+            for r in rows_out:
+                done_keys.add(_cell_key(
+                    r.get("question_id"), r.get("ladder_family"),
+                    r.get("ladder_type_raw"), r.get("level"), r.get("model_key"),
+                ))
+            logger.info("resume: {} cells already in {} — will skip them", len(done_keys), out_path)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("could not read existing {} for resume ({}); starting fresh", out_path, exc)
+            rows_out, done_keys = [], set()
+
+    n_done, n_failed, n_skipped = 0, 0, 0
+    for q in questions:
+        paraphrases = accepted[q.id]
+        for row in cell_rows_by_q[q.id]:
+            for model_key in models:
+                key = _cell_key(q.id, row.ladder_family, row.ladder_type, row.level, model_key)
+                if key in done_keys:
+                    n_skipped += 1
+                    continue
+                try:
+                    row_dict = _run_cell(
+                        config, q, row, model_key, paraphrases,
+                        k_samples=args.k_samples, answer_max=answer_max, cot_max=cot_max,
+                        include_posix=args.include_posix, fast=args.fast,
+                    )
+                except Exception:  # noqa: BLE001 — isolate cell failures
+                    n_failed += 1
+                    logger.exception(
+                        "cell FAILED qid={} family={} ladder={} L{} model={} — skipping, run continues",
+                        q.id, row.ladder_family, row.ladder_type, row.level, model_key,
+                    )
+                    continue
+                rows_out.append(row_dict)
+                done_keys.add(key)
+                n_done += 1
+                # CHECKPOINT after every cell so nothing is ever lost.
+                _checkpoint(rows_out, out_path)
+
+    logger.info(
+        "done: {} new cells, {} skipped (resume), {} failed. total in parquet: {}",
+        n_done, n_skipped, n_failed, len(rows_out),
+    )
+    if not rows_out:
+        logger.error("no cells produced; nothing written")
+        return 1
+
+    _print_summary(pd.DataFrame(rows_out), out_path)
+    return 0 if n_failed == 0 else 2
+
+
+def _cell_key(qid, family, ladder_type, level, model_key) -> tuple:
+    """Stable identity of a cell for resume/skip."""
+    return (str(qid), str(family), str(ladder_type), int(level), str(model_key))
+
+
+def _checkpoint(rows_out: list[dict], out_path: Path) -> None:
+    """Atomically write the running results so a crash never loses progress."""
+    tmp = out_path.with_suffix(out_path.suffix + ".tmp")
+    pd.DataFrame(rows_out).to_parquet(tmp, index=False)
+    import os
+    os.replace(tmp, out_path)
+
+
+def _run_cell(
+    config,
+    q: MultiHopQuestion,
+    row: LadderRow,
+    model_key: str,
+    paraphrases: list[str],
+    *,
+    k_samples: int,
+    answer_max: int,
+    cot_max: int,
+    include_posix: bool,
+    fast: bool = False,
+) -> dict:
+    """Run one (question, ladder-row, model) cell -> a flat result row dict.
+
+    `fast=True` skips the H_sem sampling + pooled NLI clustering + embeddings +
+    POSIX. That removes the quadratic-in-(N*k) DeBERTa clustering — by far the
+    biggest CPU cost — and keeps the headline metrics (FI_in / AUFI_in / f_mean
+    / spread). The output-side metrics (H_sem, FI_out, S_tau, 1-TVD, rho_u,
+    ESS_in, POSIX) come back as None/0 in fast mode.
+    """
+    from ..metrics.h_sem import cluster_responses_pooled
+
+    model_entry = config.models[model_key]
+    client = get_client(model_key, config)
+    use_cot = q.has_decomposition()
+    scoring_mode = "chain_completion" if use_cot else "binary_nli"
+    logger.info(
+        "cell qid={} ds={} family={} ladder={} level={} model={} N={} mode={} fast={}",
+        q.id, q.dataset, row.ladder_family, row.ladder_type, row.level,
+        model_key, len(paraphrases), scoring_mode, fast,
+    )
+
+    prompt_messages = [_assemble_messages(q, p, row, use_cot=use_cot) for p in paraphrases]
+    prompt_user_texts = [m[1].content for m in prompt_messages]
+    gen_max = cot_max if use_cot else answer_max
+
+    # --- F(x) at T=0 -------------------------------------------------------
+    f_responses: list[str] = []
+    for i, msgs in enumerate(prompt_messages):
+        f_responses.append(_sample_response(
+            client, model_entry, msgs, temperature=0.0, seed=42,
+            purpose=f"e2e_f::{q.id}::{row.ladder_type}::L{row.level}::{model_key}",
+            max_tokens=gen_max,
+        ))
+
+    if use_cot:
+        f_scores = chain_completion_score_batch(q.question_decomposition, f_responses, config=config)
+        final_answers = [parse_answer_line(r) for r in f_responses]
+        final_binary = f_score_batch(q.answer, final_answers, config=config)
+        final_answer_f_mean = float(np.mean(final_binary)) if final_binary else None
+        logger.info(
+            "  chain F: mean={:.3f} values={}  final-answer F mean={:.3f}",
+            float(np.mean(f_scores)) if f_scores else 0.0,
+            [round(s, 2) for s in f_scores[:5]], final_answer_f_mean or 0.0,
+        )
+    else:
+        f_scores = [float(x) for x in f_score_batch(q.answer, f_responses, config=config)]
+        final_answer_f_mean = float(np.mean(f_scores)) if f_scores else None
+        logger.info("  binary F: pass={}/{}", int(sum(f_scores)), len(f_scores))
+
+    n = len(paraphrases)
+    if fast:
+        # Skip the quadratic H_sem path entirely.
+        cluster_assignments = {}
+        prompt_embeddings = np.zeros((n, 1), dtype=np.float32)
+        response_embeddings = {}
+        posix_log_p = posix_lengths = None
+    else:
+        # --- H_sem samples ------------------------------------------------
+        responses_per_paraphrase: dict[int, list[str]] = {}
+        for i, msgs in enumerate(prompt_messages):
+            samples: list[str] = []
+            for kk in range(k_samples):
+                samples.append(_sample_response(
+                    client, model_entry, msgs,
+                    temperature=config.h_sem.sampling_temperature,
+                    seed=10000 + i * 100 + kk,
+                    purpose=f"e2e_hsem::{q.id}::{row.ladder_type}::L{row.level}::{model_key}::s{kk}",
+                    max_tokens=gen_max,
+                ))
+            responses_per_paraphrase[i] = samples
+
+        cluster_assignments = cluster_responses_pooled(responses_per_paraphrase, config=config)
+
+        prompt_embeddings = encode_texts(prompt_user_texts, config=config)
+        response_embeddings = {}
+        for i, samples in responses_per_paraphrase.items():
+            response_embeddings[i] = encode_texts(samples, config=config)
+
+        posix_log_p = posix_lengths = None
+        if include_posix and model_entry.echo_completions and row.ladder_family == "context":
+            posix_log_p, posix_lengths = _posix_matrix(
+                client, model_entry, prompt_messages, f_responses, q, row
+            )
+
+    tup = build_metric_tuple(
+        question_id=q.id,
+        ladder_type=row.ladder_type if row.ladder_family == "context" else "random",
+        level=row.level,
+        model_key=model_key,
+        scores=[float(x) for x in f_scores],
+        cluster_assignments=cluster_assignments,
+        prompt_embeddings=prompt_embeddings,
+        response_embeddings=response_embeddings,
+        posix_log_p=posix_log_p,
+        posix_lengths=posix_lengths,
+        encoder_label="external_mpnet",
+    )
+    row_dict = tup.model_dump()
+    # v6 columns added AFTER model_dump so metrics/ stays untouched.
+    row_dict["dataset"] = q.dataset
+    row_dict["ladder_family"] = row.ladder_family
+    row_dict["ladder_type_raw"] = row.ladder_type
+    row_dict["scoring_mode"] = scoring_mode
+    row_dict["final_answer_f_mean"] = final_answer_f_mean
+    row_dict["n_hops"] = q.n_hops
+    return row_dict
 
 
 def _posix_matrix(client, model_entry, prompt_messages, f_responses, q, row):
