@@ -6,7 +6,8 @@
         diagnose-paraphrases build-ladders smoke-metrics e2e-smoke \
         pilot plot-pilot paraphrases-extend-5 pilot-full \
         pilot-musique pilot-musique-dry pilot-musique-fast \
-        show-results e2e-smoke-dry
+        show-results e2e-smoke-dry \
+        cluster-push cluster-submit cluster-status cluster-pull cluster-smoke
 
 install:
 	uv sync --all-extras
@@ -171,3 +172,22 @@ sprint1-verify: install test list-models data-download sample api-check
 clean:
 	rm -rf .pytest_cache .ruff_cache **/__pycache__
 	rm -f logs/*.log
+
+# --- bwUniCluster 3.0 smoke roundtrip (see cluster/README.md) ---------------
+# Requires BWUC_USER (e.g. ka_xxxxx); BWUC_HOST defaults to uc3.scc.kit.edu.
+# Needs rsync + ssh; on Windows run from Git Bash or WSL.
+
+cluster-push:   ## rsync repo to bwUniCluster ($HOME/PromptSensitivityFI)
+	@bash cluster/sync.sh push
+
+cluster-submit: ## submit the smoke sbatch and print the SLURM job id
+	@ssh "$$BWUC_USER@$${BWUC_HOST:-uc3.scc.kit.edu}" \
+	  "cd PromptSensitivityFI && mkdir -p cluster_logs data && sbatch cluster/smoke.sbatch"
+
+cluster-status: ## squeue for the user
+	@ssh "$$BWUC_USER@$${BWUC_HOST:-uc3.scc.kit.edu}" "squeue --me"
+
+cluster-pull:   ## rsync cluster_logs + data/cluster_smoke.parquet back
+	@bash cluster/sync.sh pull
+
+cluster-smoke: cluster-push cluster-submit ## one-shot push + submit

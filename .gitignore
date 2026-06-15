@@ -16,9 +16,17 @@ data/*.db
 data/*.parquet
 data/*.duckdb
 data/*.csv
+data/*.png
 # Smoke / scratch outputs that we don't want in git but the pipeline writes there.
 data/paraphrases_smoke.parquet
 data/annotation_sample_v1.csv
 data/plots/
 data/plots_smoke/
 .DS_Store
+# --- cluster ---
+# Job output fetched back from bwUniCluster; regenerable, don't commit.
+cluster_logs/
+# Cluster-side gateway credentials. NEVER commit. Lives only on the cluster
+# at $HOME/.psf_env and (if you keep a local template) here.
+.psf_env
+*.psf_env
