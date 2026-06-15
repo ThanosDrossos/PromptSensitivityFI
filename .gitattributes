@@ -1,0 +1,7 @@
+# Cluster scripts run on Linux (bwUniCluster). Force LF so a Windows checkout
+# (git autocrlf) does not inject CRLF — CRLF breaks bash with
+# "/bin/bash^M: bad interpreter". rsync copies working-tree bytes, so the
+# working tree itself must be LF for these files.
+*.sh        text eol=lf
+*.sbatch    text eol=lf
+cluster/fixtures/*.jsonl text eol=lf
