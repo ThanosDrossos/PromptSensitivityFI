@@ -37,28 +37,104 @@ def _first_existing(paths: list[Path]) -> Path | None:
     return None
 
 
-def _plot_dual_ladder(df: pd.DataFrame, out_png: Path) -> None:
+_FAMILY_COLOURS = {"context": "#1f77b4", "reasoning": "#d62728"}
+
+
+def _plot_metric_by_family(
+    df: pd.DataFrame,
+    metric: str,
+    out_png: Path,
+    *,
+    ylabel: str,
+    title: str,
+    ylim: tuple[float, float] | None = None,
+) -> None:
+    """Mean `metric` vs level, one line per ladder family. Works on partial data."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     families = sorted(df["ladder_family"].dropna().unique()) if "ladder_family" in df else []
-    colours = {"context": "#1f77b4", "reasoning": "#d62728"}
 
     fig, ax = plt.subplots(figsize=(8, 5))
     for fam in families:
         sub = df[df["ladder_family"] == fam]
-        grp = sub.groupby("level")["f_mean"].mean().reset_index().sort_values("level")
-        ax.plot(grp["level"], grp["f_mean"], marker="o", linewidth=2,
-                label=f"{fam} ladder", color=colours.get(fam))
+        grp = sub.groupby("level")[metric].mean().reset_index().sort_values("level")
+        # Drop NaN points (e.g. a level not yet computed for this family).
+        grp = grp[grp[metric].notna()]
+        if grp.empty:
+            continue
+        ax.plot(grp["level"], grp[metric], marker="o", linewidth=2,
+                label=f"{fam} ladder", color=_FAMILY_COLOURS.get(fam))
     ax.set_xlabel("ladder level  (context: #paragraphs | reasoning: #hops scaffolded)")
-    ax.set_ylabel("mean chain-completion F")
-    ax.set_ylim(-0.05, 1.05)
+    ax.set_ylabel(ylabel)
+    if ylim is not None:
+        ax.set_ylim(*ylim)
     ax.grid(True, alpha=0.3)
-    ax.set_title("v6 dual ladder — graded chain-F vs level")
+    ax.set_title(title)
     ax.legend()
     fig.tight_layout()
     fig.savefig(out_png, dpi=140)
+    plt.close(fig)
+    logger.info("wrote {}", out_png)
+
+
+def _plot_accuracy_two_metrics(df: pd.DataFrame, out_png: Path) -> None:
+    """Accuracy plot with BOTH metrics per family:
+       solid + circles = chain-completion F (fraction of reasoning hops recovered),
+       dashed + x      = final-answer F (binary correctness of the final span).
+    Colour distinguishes ladder family; line style distinguishes the metric.
+    The gap between the two lines = 'recovers the reasoning' vs 'nails the final answer'.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+
+    families = sorted(df["ladder_family"].dropna().unique()) if "ladder_family" in df else []
+    have_final = "final_answer_f_mean" in df.columns
+
+    fig, ax = plt.subplots(figsize=(8.5, 5.5))
+    for fam in families:
+        sub = df[df["ladder_family"] == fam]
+        colour = _FAMILY_COLOURS.get(fam)
+
+        chain = sub.groupby("level")["f_mean"].mean().reset_index().sort_values("level")
+        chain = chain[chain["f_mean"].notna()]
+        if not chain.empty:
+            ax.plot(chain["level"], chain["f_mean"], marker="o", linewidth=2,
+                    color=colour)
+
+        if have_final:
+            fin = sub.groupby("level")["final_answer_f_mean"].mean().reset_index().sort_values("level")
+            fin = fin[fin["final_answer_f_mean"].notna()]
+            if not fin.empty:
+                ax.plot(fin["level"], fin["final_answer_f_mean"], marker="x",
+                        linewidth=2, linestyle="--", color=colour)
+
+    ax.set_xlabel("ladder level  (context: #paragraphs | reasoning: #hops scaffolded)")
+    ax.set_ylabel("mean F")
+    ax.set_ylim(-0.05, 1.05)
+    ax.grid(True, alpha=0.3)
+    ax.set_title("Accuracy vs level — chain-completion F (solid) vs final-answer F (dashed)")
+
+    # Two-part legend: colour = family, style = metric.
+    family_handles = [
+        Line2D([0], [0], color=_FAMILY_COLOURS.get(f), linewidth=2, label=f"{f} ladder")
+        for f in families
+    ]
+    style_handles = [
+        Line2D([0], [0], color="black", marker="o", linewidth=2, label="chain-completion F"),
+        Line2D([0], [0], color="black", marker="x", linewidth=2, linestyle="--",
+               label="final-answer F"),
+    ]
+    leg1 = ax.legend(handles=family_handles, loc="upper left", title="ladder")
+    ax.add_artist(leg1)
+    ax.legend(handles=style_handles, loc="lower right", title="metric")
+
+    fig.tight_layout()
+    fig.savefig(out_png, dpi=140)
+    plt.close(fig)
     logger.info("wrote {}", out_png)
 
 
@@ -105,7 +181,7 @@ def main() -> int:
     if {"ladder_family", "level", "f_mean"} <= set(df.columns):
         print()
         print("=" * 110)
-        print("v6 HEADLINE — mean chain-F by (ladder_family, level)")
+        print("v6 HEADLINE — mean chain-F (accuracy) by (ladder_family, level)")
         print("=" * 110)
         pivot = (
             df.groupby(["ladder_family", "level"])["f_mean"]
@@ -114,6 +190,25 @@ def main() -> int:
             .pivot(index="level", columns="ladder_family", values="f_mean")
         )
         print(pivot.to_string(float_format=lambda x: f"{x:.3f}"))
+
+    # 2b. FUNCTIONAL INFORMATION: mean AUFI_in (bits) by (family, level).
+    #     AUFI_in = area under the FI_in(k) curve (Section_7 §7.3), in BITS.
+    #     Higher = more prompt-sensitivity (only special phrasings recover the
+    #     chain). It should DROP as context/reasoning is added — the FI mirror
+    #     image of the rising accuracy curve.
+    if {"ladder_family", "level", "aufi_in"} <= set(df.columns):
+        print()
+        print("=" * 110)
+        print("FUNCTIONAL INFORMATION — mean AUFI_in [bits] by (ladder_family, level)")
+        print("  (lower = more paraphrases recover the chain = less prompt-sensitive)")
+        print("=" * 110)
+        fi_pivot = (
+            df.groupby(["ladder_family", "level"])["aufi_in"]
+            .mean()
+            .reset_index()
+            .pivot(index="level", columns="ladder_family", values="aufi_in")
+        )
+        print(fi_pivot.to_string(float_format=lambda x: f"{x:.3f}"))
 
     # 3. graded-F sanity.
     if "f_mean" in df.columns:
@@ -125,9 +220,17 @@ def main() -> int:
             print(f"f_mean range: [{min(fvals):.3f}, {max(fvals):.3f}], mean {sum(fvals)/len(fvals):.3f}")
 
     if args.plot and "ladder_family" in df.columns:
-        out_png = path.with_name(path.stem + "_dual_ladder.png")
-        _plot_dual_ladder(df, out_png)
-        print(f"\nplot -> {out_png}")
+        # Accuracy dual ladder: chain-F (solid) + final-answer F (dashed).
+        acc_png = path.with_name(path.stem + "_dual_ladder.png")
+        _plot_accuracy_two_metrics(df, acc_png)
+        # Functional Information (AUFI_in, bits) dual ladder — the headline metric.
+        fi_png = path.with_name(path.stem + "_fi_in.png")
+        _plot_metric_by_family(
+            df, "aufi_in", fi_png,
+            ylabel="mean AUFI_in  [bits]  (lower = less prompt-sensitive)",
+            title="Functional Information (AUFI_in) vs level — falls as context/reasoning is added",
+        )
+        print(f"\nplots -> {acc_png}\n         {fi_png}")
 
     return 0
 
