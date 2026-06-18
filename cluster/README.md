@@ -79,30 +79,70 @@ the rsync excludes — it is never pushed from local nor committed.
 
 | Var | Required | Default | Meaning |
 |---|---|---|---|
-| `BWUC_USER` | yes | — | your cluster login, e.g. `ka_xxxxx` |
+| `BWUC_USER` | yes | — | your cluster login, e.g. `ka_jc8392` |
 | `BWUC_HOST` | no | `uc3.scc.kit.edu` | login host |
+| `BWUC_SSH_KEY` | no | (default `~/.ssh`) | private-key path if the key is NOT in `~/.ssh` |
 
-Set `BWUC_USER` inline per command, or `export` it for the session.
+Set them inline per command, or `export` them once for the session.
+
+**This project's values** (login `ka_jc8392`, key at `C:\Users\thano\ssh_key_thanoskit`).
+Run from **Git Bash** (rsync/ssh are not in PowerShell). In Git Bash a Windows
+path `C:\Users\thano\ssh_key_thanoskit` is written `/c/Users/thano/ssh_key_thanoskit`:
+
+```bash
+export BWUC_USER=ka_jc8392
+export BWUC_SSH_KEY=/c/Users/thano/ssh_key_thanoskit
+```
+
+### Windows: lock down the key permissions once
+
+OpenSSH refuses a private key that is group/world-readable
+("UNPROTECTED PRIVATE KEY FILE"). Fix it once in **PowerShell**:
+
+```powershell
+icacls C:\Users\thano\ssh_key_thanoskit /inheritance:r
+icacls C:\Users\thano\ssh_key_thanoskit /grant:r "$($env:USERNAME):(R)"
+```
 
 ---
 
-## 4. The roundtrip (three commands, run locally)
+## 4. The roundtrip
+
+### Step 0 — minimal connectivity test (do this FIRST)
+
+Before pushing anything, confirm the key + login work and SLURM is visible.
+This is the smallest possible "is my setup wired up" check — no sync, no job:
+
+```bash
+make cluster-check
+```
+
+Expected: `CONNECTED as ka_jc8392 on uc3nXXXX`, paths to `sbatch`/`squeue`,
+and `repo NOT pushed yet` (until you run `cluster-push`). The first connection
+this session prompts for OTP + service password to unlock the key.
+
+### Steps 1-3 — the actual roundtrip
 
 ```bash
 # push code + submit the smoke job in one shot
-BWUC_USER=ka_xxxxx make cluster-smoke
+make cluster-smoke
 
-# watch the queue (R = running, PD = pending)
-BWUC_USER=ka_xxxxx make cluster-status
+# watch the queue (R = running, PD = pending, empty = finished)
+make cluster-status
 
 # once it leaves the queue, pull logs + the result parquet back
-BWUC_USER=ka_xxxxx make cluster-pull
+make cluster-pull
 ```
+
+(With `BWUC_USER` / `BWUC_SSH_KEY` exported as in §3, you don't repeat them
+each time. Otherwise prefix each command, e.g.
+`BWUC_USER=ka_jc8392 BWUC_SSH_KEY=/c/Users/thano/ssh_key_thanoskit make cluster-check`.)
 
 `make cluster-smoke` = `cluster-push` + `cluster-submit`. Individual targets:
 
 | Target | Does |
 |---|---|
+| `cluster-check` | `ssh` in, print hostname/whoami, confirm `sbatch`/`squeue` + whether the repo is pushed. No sync, no job — the minimal connectivity test |
 | `cluster-push` | `rsync` the repo to `$HOME/PromptSensitivityFI` (excludes `.venv`, `data/`, `logs/`, `.git/`, `cluster_logs/`, `.env*`, `.psf_env`) |
 | `cluster-submit` | `ssh` + `sbatch cluster/smoke.sbatch`, prints the job id |
 | `cluster-status` | `ssh` + `squeue --me` |

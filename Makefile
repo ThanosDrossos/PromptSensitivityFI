@@ -7,7 +7,7 @@
         pilot plot-pilot paraphrases-extend-5 pilot-full \
         pilot-musique pilot-musique-dry pilot-musique-fast \
         show-results e2e-smoke-dry \
-        cluster-push cluster-submit cluster-status cluster-pull cluster-smoke
+        cluster-check cluster-push cluster-submit cluster-status cluster-pull cluster-smoke
 
 install:
 	uv sync --all-extras
@@ -174,18 +174,29 @@ clean:
 	rm -f logs/*.log
 
 # --- bwUniCluster 3.0 smoke roundtrip (see cluster/README.md) ---------------
-# Requires BWUC_USER (e.g. ka_xxxxx); BWUC_HOST defaults to uc3.scc.kit.edu.
+# Requires BWUC_USER (e.g. ka_jc8392); BWUC_HOST defaults to uc3.scc.kit.edu.
+# Optional BWUC_SSH_KEY = path to a private key not in ~/.ssh (Git Bash form,
+# e.g. /c/Users/thano/ssh_key_thanoskit).
 # Needs rsync + ssh; on Windows run from Git Bash or WSL.
+# $${BWUC_SSH_KEY:+...} injects the -i option only when the key var is set.
+
+cluster-check:  ## minimal: ssh in, print hostname/whoami, confirm sbatch exists
+	@KEY_OPT=$${BWUC_SSH_KEY:+-i $$BWUC_SSH_KEY -o IdentitiesOnly=yes}; \
+	ssh $$KEY_OPT "$$BWUC_USER@$${BWUC_HOST:-uc3.scc.kit.edu}" \
+	  "echo CONNECTED as \$$(whoami) on \$$(hostname); which sbatch squeue; \
+	   ls -d PromptSensitivityFI 2>/dev/null && echo 'repo present' || echo 'repo NOT pushed yet'"
 
 cluster-push:   ## rsync repo to bwUniCluster ($HOME/PromptSensitivityFI)
 	@bash cluster/sync.sh push
 
 cluster-submit: ## submit the smoke sbatch and print the SLURM job id
-	@ssh "$$BWUC_USER@$${BWUC_HOST:-uc3.scc.kit.edu}" \
+	@KEY_OPT=$${BWUC_SSH_KEY:+-i $$BWUC_SSH_KEY -o IdentitiesOnly=yes}; \
+	ssh $$KEY_OPT "$$BWUC_USER@$${BWUC_HOST:-uc3.scc.kit.edu}" \
 	  "cd PromptSensitivityFI && mkdir -p cluster_logs data && sbatch cluster/smoke.sbatch"
 
 cluster-status: ## squeue for the user
-	@ssh "$$BWUC_USER@$${BWUC_HOST:-uc3.scc.kit.edu}" "squeue --me"
+	@KEY_OPT=$${BWUC_SSH_KEY:+-i $$BWUC_SSH_KEY -o IdentitiesOnly=yes}; \
+	ssh $$KEY_OPT "$$BWUC_USER@$${BWUC_HOST:-uc3.scc.kit.edu}" "squeue --me"
 
 cluster-pull:   ## rsync cluster_logs + data/cluster_smoke.parquet back
 	@bash cluster/sync.sh pull
