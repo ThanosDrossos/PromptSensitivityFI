@@ -108,6 +108,10 @@ icacls C:\Users\thano\ssh_key_thanoskit /grant:r "$($env:USERNAME):(R)"
 
 ## 4. The roundtrip
 
+> **No `make`?** Git Bash on Windows usually lacks GNU make. Every step below
+> has an identical make-free form: replace `make cluster-<cmd>` with
+> `bash cluster/run.sh <cmd>` (same env vars). e.g. `bash cluster/run.sh check`.
+
 ### Step 0 — minimal connectivity test (do this FIRST)
 
 Before pushing anything, confirm the key + login work and SLURM is visible.
