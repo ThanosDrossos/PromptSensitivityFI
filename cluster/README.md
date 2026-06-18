@@ -111,6 +111,10 @@ icacls C:\Users\thano\ssh_key_thanoskit /grant:r "$($env:USERNAME):(R)"
 > **No `make`?** Git Bash on Windows usually lacks GNU make. Every step below
 > has an identical make-free form: replace `make cluster-<cmd>` with
 > `bash cluster/run.sh <cmd>` (same env vars). e.g. `bash cluster/run.sh check`.
+>
+> **No `rsync`?** Git Bash also lacks rsync. `sync.sh` auto-detects this and
+> falls back to **tar-over-ssh** (ssh + tar only, both present) — an overlay
+> copy with the same excludes, just no `--delete`. Nothing extra to install.
 
 ### Step 0 — minimal connectivity test (do this FIRST)
 

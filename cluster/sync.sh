@@ -10,8 +10,10 @@
 # written /c/Users/thano/ssh_key_thanoskit.
 # The remote repo lives at $HOME/PromptSensitivityFI on the cluster.
 #
-# Requires rsync + ssh. On Windows run this from Git Bash or WSL (PowerShell
-# has no rsync). See cluster/README.md.
+# Transport: uses rsync if available (incremental + --delete). Git Bash on
+# Windows ships ssh + tar but NOT rsync, so when rsync is absent it falls back
+# to tar-over-ssh (same excludes; overlay copy, no remote deletion). Both paths
+# need only ssh + tar. See cluster/README.md.
 
 set -euo pipefail
 
@@ -34,35 +36,72 @@ fi
 
 # Exclusions: never sync the venv, large/regenerable data, logs, git, or any
 # secret. cluster/ ITSELF is synced (it holds the sbatch + fixture), but
-# cluster_logs/ (job output) is pulled, not pushed.
-PUSH_EXCLUDES=(
-  --exclude=.venv
-  --exclude=data
-  --exclude=logs
-  --exclude=.git
-  --exclude=cluster_logs
-  --exclude='.env*'
-  --exclude=.psf_env
-  --exclude=__pycache__
-  --exclude='*.pyc'
-  --exclude=.pytest_cache
-  --exclude=.ruff_cache
+# cluster_logs/ (job output) is pulled, not pushed. Used by both transports.
+EXCLUDE_NAMES=(
+  .venv data logs .git cluster_logs .psf_env
+  __pycache__ .pytest_cache .ruff_cache
 )
+RSYNC_EXCLUDES=()
+TAR_EXCLUDES=()
+for n in "${EXCLUDE_NAMES[@]}"; do
+  RSYNC_EXCLUDES+=(--exclude="$n")
+  TAR_EXCLUDES+=(--exclude="$n")
+done
+# Glob excludes.
+RSYNC_EXCLUDES+=(--exclude='.env*' --exclude='*.pyc')
+TAR_EXCLUDES+=(--exclude='.env*' --exclude='*.pyc')
+
+HAVE_RSYNC=0
+command -v rsync >/dev/null 2>&1 && HAVE_RSYNC=1
+
+# ---- rsync transport (preferred) ------------------------------------------
+
+push_rsync() {
+  rsync -avz --delete -e "$SSH_CMD" "${RSYNC_EXCLUDES[@]}" ./ "$REMOTE:$REMOTE_DIR/"
+}
+
+pull_rsync() {
+  rsync -avz -e "$SSH_CMD" "$REMOTE:$REMOTE_DIR/cluster_logs/" ./cluster_logs/
+  rsync -avz -e "$SSH_CMD" "$REMOTE:$REMOTE_DIR/data/cluster_smoke.parquet" \
+    ./data/cluster_smoke.parquet || \
+    echo "   (data/cluster_smoke.parquet not present yet — has the job finished?)"
+}
+
+# ---- tar-over-ssh transport (fallback when rsync is absent) ---------------
+# Overlay copy (no remote deletion). Needs only ssh + tar, both in Git Bash.
+
+push_tar() {
+  echo "   (rsync not found -> tar-over-ssh; overlay copy, no --delete)"
+  tar czf - "${TAR_EXCLUDES[@]}" -C "$PWD" . \
+    | $SSH_CMD "$REMOTE" "mkdir -p '$REMOTE_DIR' && tar xzf - -C '$REMOTE_DIR'"
+}
+
+pull_tar() {
+  # cluster_logs (skip cleanly if the job hasn't created it yet)
+  if $SSH_CMD "$REMOTE" "test -d '$REMOTE_DIR/cluster_logs'"; then
+    $SSH_CMD "$REMOTE" "tar czf - -C '$REMOTE_DIR' cluster_logs" | tar xzf - -C .
+  else
+    echo "   (cluster_logs/ not present yet)"
+  fi
+  # parquet (best-effort)
+  if $SSH_CMD "$REMOTE" "test -f '$REMOTE_DIR/data/cluster_smoke.parquet'"; then
+    $SSH_CMD "$REMOTE" "tar czf - -C '$REMOTE_DIR' data/cluster_smoke.parquet" | tar xzf - -C .
+  else
+    echo "   (data/cluster_smoke.parquet not present yet — has the job finished?)"
+  fi
+}
+
+# ---- dispatch -------------------------------------------------------------
 
 push() {
   echo ">> push  $PWD/  ->  $REMOTE:$REMOTE_DIR/"
-  rsync -avz --delete -e "$SSH_CMD" "${PUSH_EXCLUDES[@]}" \
-    ./ "$REMOTE:$REMOTE_DIR/"
+  if [[ $HAVE_RSYNC -eq 1 ]]; then push_rsync; else push_tar; fi
 }
 
 pull() {
   echo ">> pull  cluster_logs/  +  data/cluster_smoke.parquet"
   mkdir -p ./cluster_logs ./data
-  rsync -avz -e "$SSH_CMD" "$REMOTE:$REMOTE_DIR/cluster_logs/" ./cluster_logs/
-  # The parquet may not exist yet (e.g. job still queued) — don't fail the pull.
-  rsync -avz -e "$SSH_CMD" "$REMOTE:$REMOTE_DIR/data/cluster_smoke.parquet" \
-    ./data/cluster_smoke.parquet || \
-    echo "   (data/cluster_smoke.parquet not present yet — has the job finished?)"
+  if [[ $HAVE_RSYNC -eq 1 ]]; then pull_rsync; else pull_tar; fi
 }
 
 case "${1:-}" in
