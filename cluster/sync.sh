@@ -5,6 +5,9 @@
 #   BWUC_USER=ka_xxxxx bash cluster/sync.sh pull
 #
 # Host defaults to uc3.scc.kit.edu; override with BWUC_HOST.
+# Custom SSH key: set BWUC_SSH_KEY to the private-key path (e.g. a key NOT in
+# ~/.ssh). In Git Bash a Windows path like C:\Users\thano\ssh_key_thanoskit is
+# written /c/Users/thano/ssh_key_thanoskit.
 # The remote repo lives at $HOME/PromptSensitivityFI on the cluster.
 #
 # Requires rsync + ssh. On Windows run this from Git Bash or WSL (PowerShell
@@ -21,6 +24,13 @@ if [[ -z "${BWUC_USER:-}" ]]; then
 fi
 
 REMOTE="$BWUC_USER@$BWUC_HOST"
+
+# Build the ssh transport rsync uses. With BWUC_SSH_KEY set, force that key
+# (IdentitiesOnly stops the agent from offering other keys first).
+SSH_CMD="ssh"
+if [[ -n "${BWUC_SSH_KEY:-}" ]]; then
+  SSH_CMD="ssh -i $BWUC_SSH_KEY -o IdentitiesOnly=yes"
+fi
 
 # Exclusions: never sync the venv, large/regenerable data, logs, git, or any
 # secret. cluster/ ITSELF is synced (it holds the sbatch + fixture), but
@@ -41,16 +51,16 @@ PUSH_EXCLUDES=(
 
 push() {
   echo ">> push  $PWD/  ->  $REMOTE:$REMOTE_DIR/"
-  rsync -avz --delete "${PUSH_EXCLUDES[@]}" \
+  rsync -avz --delete -e "$SSH_CMD" "${PUSH_EXCLUDES[@]}" \
     ./ "$REMOTE:$REMOTE_DIR/"
 }
 
 pull() {
   echo ">> pull  cluster_logs/  +  data/cluster_smoke.parquet"
   mkdir -p ./cluster_logs ./data
-  rsync -avz "$REMOTE:$REMOTE_DIR/cluster_logs/" ./cluster_logs/
+  rsync -avz -e "$SSH_CMD" "$REMOTE:$REMOTE_DIR/cluster_logs/" ./cluster_logs/
   # The parquet may not exist yet (e.g. job still queued) — don't fail the pull.
-  rsync -avz "$REMOTE:$REMOTE_DIR/data/cluster_smoke.parquet" \
+  rsync -avz -e "$SSH_CMD" "$REMOTE:$REMOTE_DIR/data/cluster_smoke.parquet" \
     ./data/cluster_smoke.parquet || \
     echo "   (data/cluster_smoke.parquet not present yet — has the job finished?)"
 }
