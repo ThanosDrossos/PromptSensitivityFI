@@ -79,15 +79,17 @@ def _load_model(model_id: str):  # type: ignore[no-untyped-def]
 
 
 def _format_chat(tokenizer, messages: list[dict]) -> Any:
-    """Apply the model's chat template -> input_ids tensor (1, T).
+    """Apply the model's chat template -> BatchEncoding (input_ids + attention_mask).
 
-    Some instruct templates (older Mistral) reject a standalone ``system`` role.
-    Fall back to folding the system text into the first user turn so the three
-    eval models + the Qwen generator all work without special-casing call sites.
+    `return_dict=True` so we get a `BatchEncoding` regardless of the tokenizer
+    (some return a bare tensor, some a dict) and can pass `attention_mask` to
+    `generate`. Some instruct templates (older Mistral) reject a standalone
+    ``system`` role; fall back to folding the system text into the first user
+    turn so the three eval models + the Qwen generator all work uniformly.
     """
     try:
         return tokenizer.apply_chat_template(
-            messages, add_generation_prompt=True, return_tensors="pt"
+            messages, add_generation_prompt=True, return_tensors="pt", return_dict=True
         )
     except Exception as exc:  # noqa: BLE001 — template rejected the role layout
         logger.warning("chat template rejected roles ({}); folding system->user", str(exc)[:120])
@@ -103,7 +105,7 @@ def _format_chat(tokenizer, messages: list[dict]) -> Any:
             else:
                 folded.append(m)
         return tokenizer.apply_chat_template(
-            folded, add_generation_prompt=True, return_tensors="pt"
+            folded, add_generation_prompt=True, return_tensors="pt", return_dict=True
         )
 
 
@@ -188,7 +190,8 @@ class LocalHFClient(BaseLLMClient):
 
         tok, model = _load_model(self.entry.model_id)
         messages = [{"role": m.role, "content": m.content} for m in request.messages]
-        input_ids = _format_chat(tok, messages).to(model.device)
+        enc = _format_chat(tok, messages).to(model.device)
+        input_ids = enc["input_ids"]
         prompt_len = int(input_ids.shape[1])
 
         do_sample = bool(request.temperature and request.temperature > 0.0)
@@ -206,7 +209,7 @@ class LocalHFClient(BaseLLMClient):
             gen_kwargs["top_p"] = request.top_p
 
         with torch.no_grad():
-            out = model.generate(input_ids, **gen_kwargs)
+            out = model.generate(**enc, **gen_kwargs)
 
         seq = out.sequences[0]
         new_token_ids = seq[prompt_len:]
