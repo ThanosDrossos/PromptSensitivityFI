@@ -413,6 +413,13 @@ def get_client(model_key: str, config: Config | None = None) -> BaseLLMClient:
     if model_key in _CLIENTS:
         return _CLIENTS[model_key]
     entry = config.models[model_key]
+    # Lazily register the in-process transformers backend on first use so the
+    # heavy `transformers`/`torch`-CUDA import only happens when a `local` model
+    # is actually requested (gateway-only runs never pay for it).
+    if entry.provider == "local" and "local" not in _PROVIDER_REGISTRY:
+        from .local_hf import LocalHFClient  # noqa: WPS433
+
+        _PROVIDER_REGISTRY["local"] = LocalHFClient
     if entry.provider not in _PROVIDER_REGISTRY:
         raise NotImplementedError(f"unknown provider: {entry.provider}")
     client = _PROVIDER_REGISTRY[entry.provider](entry, config, _get_cache(config))
