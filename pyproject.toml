@@ -31,6 +31,9 @@ dependencies = [
   "torch>=2.3",
   "sentence-transformers>=3.0",
   "scikit-learn>=1.5",
+  # Sprint 6 (cluster): in-process HF models need accelerate for device_map=cuda
+  # (models/local_hf.py). CPU-only dev installs it too; it's lightweight.
+  "accelerate>=0.30",
 ]
 
 [project.optional-dependencies]
