@@ -94,16 +94,18 @@ def _format_chat(tokenizer, messages: list[dict]) -> Any:
     except Exception as exc:  # noqa: BLE001 — template rejected the role layout
         logger.warning("chat template rejected roles ({}); folding system->user", str(exc)[:120])
         folded: list[dict] = []
-        sys_text = ""
+        sys_parts: list[str] = []  # accumulate ALL system turns until a user consumes them
         for m in messages:
             if m["role"] == "system":
-                sys_text = m["content"]
+                sys_parts.append(m["content"])
                 continue
-            if sys_text and m["role"] == "user":
-                folded.append({"role": "user", "content": f"{sys_text}\n\n{m['content']}"})
-                sys_text = ""
+            if sys_parts and m["role"] == "user":
+                folded.append({"role": "user", "content": "\n\n".join([*sys_parts, m["content"]])})
+                sys_parts = []
             else:
                 folded.append(m)
+        if sys_parts:  # system text never reached a user turn -> emit it as one
+            folded.append({"role": "user", "content": "\n\n".join(sys_parts)})
         return tokenizer.apply_chat_template(
             folded, add_generation_prompt=True, return_tensors="pt", return_dict=True
         )
@@ -132,12 +134,13 @@ def _build_token_logprobs(
 
     `scores` is a tuple (len = #generated tokens) of (1, vocab) logits. We
     log-softmax each step, read off the chosen token's logprob, and attach the
-    top-k alternatives. Full vocab is available here — the gateway capped top-k
-    at 20; we keep that default but allow more.
+    top-k alternatives. Full vocab is available locally (no gateway top-20 cap):
+    `top_logprobs` is honoured as-is (default 5 when None), clamped only to the
+    vocabulary size.
     """
     import torch
 
-    k = min(20, top_logprobs if top_logprobs is not None else 5)
+    k = 5 if top_logprobs is None else int(top_logprobs)
     out: list[TokenLogprob] = []
     n = min(len(scores), int(new_token_ids.shape[0]))
     for t in range(n):
@@ -145,7 +148,7 @@ def _build_token_logprobs(
         chosen_id = int(new_token_ids[t].item())
         top: dict[str, float] = {}
         if k > 0:
-            vals, idxs = torch.topk(logp, k)
+            vals, idxs = torch.topk(logp, min(k, int(logp.shape[0])))
             for v, j in zip(vals.tolist(), idxs.tolist()):
                 top[tokenizer.decode([j])] = float(v)
         out.append(
@@ -186,7 +189,6 @@ class LocalHFClient(BaseLLMClient):
 
     def _raw_call(self, request: LLMRequest) -> LLMResponse:
         import torch
-        from transformers import set_seed
 
         tok, model = _load_model(self.entry.model_id)
         messages = [{"role": m.role, "content": m.content} for m in request.messages]
@@ -195,8 +197,6 @@ class LocalHFClient(BaseLLMClient):
         prompt_len = int(input_ids.shape[1])
 
         do_sample = bool(request.temperature and request.temperature > 0.0)
-        set_seed(request.seed if request.seed is not None else 0)
-
         gen_kwargs: dict[str, Any] = dict(
             max_new_tokens=request.max_tokens,
             do_sample=do_sample,
@@ -208,8 +208,19 @@ class LocalHFClient(BaseLLMClient):
             gen_kwargs["temperature"] = request.temperature
             gen_kwargs["top_p"] = request.top_p
 
-        with torch.no_grad():
-            out = model.generate(**enc, **gen_kwargs)
+        # Seed reproducibly WITHOUT touching global RNG. `transformers.set_seed`
+        # would reset python/numpy/torch globals on every call and perturb e.g.
+        # the bootstrap CIs computed later in the same process. fork_rng saves +
+        # restores the RNG around just this generate; we seed inside it, and only
+        # when sampling (greedy is already deterministic).
+        fork_devices = [input_ids.device.index] if input_ids.device.type == "cuda" else []
+        with torch.random.fork_rng(
+            devices=fork_devices, enabled=do_sample and request.seed is not None
+        ):
+            if do_sample and request.seed is not None:
+                torch.manual_seed(int(request.seed))
+            with torch.no_grad():
+                out = model.generate(**enc, **gen_kwargs)
 
         seq = out.sequences[0]
         new_token_ids = seq[prompt_len:]
@@ -226,15 +237,23 @@ class LocalHFClient(BaseLLMClient):
             )
 
         text, stopped = _apply_stop(text, request.stop)
+        completion_tokens = int(new_token_ids.shape[0])
         if stopped:
             finish_reason = "stop"
+            # Keep completion_tokens / token_logprobs aligned with the returned
+            # (truncated) text. Best-effort: a prefix's token count can differ
+            # slightly from the original generation's boundaries.
+            trunc_n = len(tok(text, add_special_tokens=False)["input_ids"])
+            completion_tokens = min(completion_tokens, trunc_n)
+            if token_logprobs is not None:
+                token_logprobs = token_logprobs[:completion_tokens] or None
 
         return LLMResponse(
             request_hash=request.cache_key(),
             text=text,
             finish_reason=finish_reason,
             prompt_tokens=prompt_len,
-            completion_tokens=int(new_token_ids.shape[0]),
+            completion_tokens=completion_tokens,
             token_logprobs=token_logprobs,
             raw_provider_response=None,
         )
@@ -252,7 +271,7 @@ class LocalHFClient(BaseLLMClient):
         enc = tok(request.prompt, return_tensors="pt").to(model.device)
         ids = enc["input_ids"][0]
         with torch.no_grad():
-            logits = model(enc["input_ids"]).logits[0].float()  # (T, V)
+            logits = model(**enc).logits[0].float()  # (T, V); **enc keeps attention_mask
         logp = torch.log_softmax(logits, dim=-1)
 
         token_logprobs: list[TokenLogprob] = []
@@ -274,9 +293,17 @@ class LocalHFClient(BaseLLMClient):
 
     # ---- last-layer hidden states (own-encoder ESS_in / rho_u) --------------
 
-    def embed_hidden(self, texts: list[str], *, batch_size: int = 16) -> np.ndarray:
+    def embed_hidden(
+        self, texts: list[str], *, batch_size: int = 16, max_length: int | None = None
+    ) -> np.ndarray:
         """Mask-mean-pooled last hidden layer -> (N, D) float32. The model's OWN
         representation, used by ESS_in^own / rho_u^own instead of the mpnet proxy.
+
+        `max_length` defaults to the model's context window capped at 4096 (to
+        bound activation memory, since `output_hidden_states` materialises every
+        layer). Inputs longer than the cap are truncated AND a warning is logged
+        — silent context loss would corrupt ESS_in / rho_u for high-context
+        ladder rungs (10 MuSiQue paragraphs can exceed 2048 tokens).
         """
         import torch
 
@@ -284,11 +311,21 @@ class LocalHFClient(BaseLLMClient):
         if not texts:
             return np.zeros((0, int(model.config.hidden_size)), dtype=np.float32)
 
+        model_max = int(getattr(model.config, "max_position_embeddings", 4096) or 4096)
+        cap = int(max_length) if max_length is not None else min(model_max, 4096)
+
         chunks: list[np.ndarray] = []
         for start in range(0, len(texts), batch_size):
             batch = [t if t else " " for t in texts[start : start + batch_size]]
+            raw_lens = [len(ids) for ids in tok(batch, add_special_tokens=True)["input_ids"]]
+            if any(rl > cap for rl in raw_lens):
+                logger.warning(
+                    "embed_hidden: {} input(s) exceed max_length={} (longest={}) — truncating; "
+                    "ESS_in/rho_u for these use a truncated context",
+                    sum(rl > cap for rl in raw_lens), cap, max(raw_lens),
+                )
             enc = tok(
-                batch, return_tensors="pt", padding=True, truncation=True, max_length=2048
+                batch, return_tensors="pt", padding=True, truncation=True, max_length=cap
             ).to(model.device)
             with torch.no_grad():
                 out = model(**enc, output_hidden_states=True)

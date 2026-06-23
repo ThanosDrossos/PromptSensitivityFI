@@ -52,6 +52,13 @@ def test_apply_stop_no_match_and_none():
     assert _apply_stop("text", None) == ("text", False)
 
 
+def test_apply_stop_ignores_empty_strings():
+    # Empty entries must be skipped, not truncate everything at index 0.
+    assert _apply_stop("foo", ["", "bar"]) == ("foo", False)
+    assert _apply_stop("foo", [""]) == ("foo", False)
+    assert _apply_stop("fooXbar", ["", "X"]) == ("foo", True)
+
+
 # --- per-token logprob extraction from generate() scores --------------------
 
 
@@ -83,6 +90,86 @@ def test_build_token_logprobs_truncates_to_min_length():
     new_token_ids = torch.tensor([1, 0, 1])
     out = _build_token_logprobs(_FakeTok(), scores, new_token_ids, top_logprobs=1)
     assert out is not None and len(out) == 1
+
+
+def test_build_token_logprobs_default_topk_clamps_to_vocab():
+    # top_logprobs=None -> default 5, but vocab is only 3 -> clamp to 3.
+    scores = (torch.tensor([[0.1, 0.2, 0.7]]),)
+    out = _build_token_logprobs(_FakeTok(), scores, torch.tensor([2]), None)
+    assert out is not None and len(out[0].top_logprobs) == 3
+
+
+def test_build_token_logprobs_large_k_not_capped_at_20():
+    # Local path has full vocab: asking for 25 returns 25 (no hard 20 cap).
+    V = 25
+    scores = (torch.arange(V, dtype=torch.float32).unsqueeze(0),)
+    out = _build_token_logprobs(_FakeTok(), scores, torch.tensor([V - 1]), top_logprobs=25)
+    assert out is not None and len(out[0].top_logprobs) == 25
+
+
+def test_build_token_logprobs_empty_scores_returns_none():
+    out = _build_token_logprobs(_FakeTok(), (), torch.tensor([0, 1]), top_logprobs=1)
+    assert out is None
+
+
+# --- _format_chat system->user fold fallback --------------------------------
+
+
+class _FoldTok:
+    """Fake tokenizer: rejects the first apply_chat_template call (as a template
+    that disallows a standalone system role would), then succeeds on the folded
+    layout. Records each call's messages for inspection."""
+
+    def __init__(self):
+        self.calls: list[list[dict]] = []
+
+    def apply_chat_template(self, messages, **kwargs):
+        self.calls.append([dict(m) for m in messages])
+        if len(self.calls) == 1:
+            raise ValueError("template does not support a system role")
+        return {"input_ids": "OK", "attention_mask": "OK"}
+
+
+def test_format_chat_folds_system_into_first_user():
+    from prompt_sensitivity.models.local_hf import _format_chat
+
+    tok = _FoldTok()
+    out = _format_chat(tok, [
+        {"role": "system", "content": "SYS"},
+        {"role": "user", "content": "USER1"},
+        {"role": "assistant", "content": "A1"},
+        {"role": "user", "content": "USER2"},
+    ])
+    assert out == {"input_ids": "OK", "attention_mask": "OK"}
+    assert len(tok.calls) == 2  # failed once, retried folded
+    folded = tok.calls[1]
+    assert folded[0]["role"] == "user"
+    assert "SYS" in folded[0]["content"] and "USER1" in folded[0]["content"]
+    # later turns preserved verbatim, system folded exactly once
+    assert folded[1] == {"role": "assistant", "content": "A1"}
+    assert folded[2] == {"role": "user", "content": "USER2"}
+
+
+def test_format_chat_fold_accumulates_multiple_system():
+    from prompt_sensitivity.models.local_hf import _format_chat
+
+    tok = _FoldTok()
+    _format_chat(tok, [
+        {"role": "system", "content": "S1"},
+        {"role": "system", "content": "S2"},
+        {"role": "user", "content": "U"},
+    ])
+    folded = tok.calls[1]
+    assert len(folded) == 1 and folded[0]["role"] == "user"
+    assert all(s in folded[0]["content"] for s in ("S1", "S2", "U"))
+
+
+def test_format_chat_fold_no_user_emits_system_as_user():
+    from prompt_sensitivity.models.local_hf import _format_chat
+
+    tok = _FoldTok()
+    _format_chat(tok, [{"role": "system", "content": "SYS-ONLY"}])
+    assert tok.calls[1] == [{"role": "user", "content": "SYS-ONLY"}]
 
 
 # --- masked mean pooling ----------------------------------------------------

@@ -250,7 +250,7 @@ once. `LITELLM_*` / `$HOME/.psf_env` are **not needed** for this path.
    (Pre-cache DeBERTa NLI the same way — see §2c.)
 4. **Materialise the real MuSiQue dev data** at the path the loader checks:
    `data/raw/musique/musique_ans_v1.0_dev.jsonl` (MuSiQue-Ans dev, via the
-   official `StonyBrookNLP/musique` `download_data.sh` or a HF mirror). The toy
+   official `StonyBrookNLP/musique` `download_data.sh` or an HF mirror). The toy
    `cluster/fixtures/` file is for wiring only — `e2e_local.sbatch` does NOT copy
    it and aborts if the real jsonl is missing.
 
