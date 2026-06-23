@@ -24,11 +24,11 @@ cd "$HOME/PromptSensitivityFI"
 mkdir -p cluster_logs data
 
 # --- Python module ---------------------------------------------------------
-# GUESS — run `module avail python` once and pin the real 3.11+ name (same as
-# smoke.sbatch). torch ships its own CUDA runtime, so no cuda module is needed
-# for the sdpa path (we don't build flash-attn).
+# Confirmed on uc3 (2026-06-23): miniforge ships Python 3.12, within our
+# requires-python >=3.11,<3.13. torch ships its own CUDA runtime, so no cuda
+# module is needed for the sdpa path (we don't build flash-attn).
 module purge
-module load devel/python/3.11
+module load devel/miniforge/25.3.1-python-3.12
 
 # --- uv env (NOT --frozen here: pyproject gained `accelerate`, so let uv
 #     re-resolve the lock rather than fail on a stale --frozen check) ----------

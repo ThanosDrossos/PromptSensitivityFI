@@ -21,10 +21,10 @@ cd "$HOME/PromptSensitivityFI"
 mkdir -p cluster_logs data data/raw/musique
 
 # --- Python module ---------------------------------------------------------
-# GUESS — run `module avail python` once on the cluster, pick the real name,
-# edit this line, and commit (see cluster/README.md §"One-time module step").
+# Confirmed on uc3 (2026-06-23): miniforge ships Python 3.12 (within our
+# requires-python >=3.11,<3.13).
 module purge
-module load devel/python/3.11
+module load devel/miniforge/25.3.1-python-3.12
 
 # --- uv-based env (reused across runs; .venv is NOT synced from local) ------
 # First-time setup is best done on the LOGIN node (internet, no time limit);

@@ -50,7 +50,7 @@ cd PromptSensitivityFI
 
 # (a) Find the real Python module name, then edit cluster/smoke.sbatch's
 #     `module load ...` line to match, and commit the change locally.
-module avail python          # e.g. devel/python/3.11 — pick the 3.11+ one
+module avail python          # confirmed on uc3: devel/miniforge/25.3.1-python-3.12
 
 module purge && module load <the-python-module-you-found>
 
