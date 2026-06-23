@@ -36,20 +36,29 @@ fi
 
 # Exclusions: never sync the venv, large/regenerable data, logs, git, or any
 # secret. cluster/ ITSELF is synced (it holds the sbatch + fixture), but
-# cluster_logs/ (job output) is pulled, not pushed. Used by both transports.
-EXCLUDE_NAMES=(
-  .venv data logs .git cluster_logs .psf_env
-  __pycache__ .pytest_cache .ruff_cache
-)
+# cluster_logs/ (job output) is pulled, not pushed.
+#
+# ANCHORING MATTERS: a BARE name like `data` matches at ANY depth in both tar
+# and rsync, so it also drops the SOURCE package prompt_sensitivity/data/ (the
+# 2026-06-23 cluster ImportError: "No module named prompt_sensitivity.data").
+# So anchor the regenerable top-level dirs to the repo root, and keep only the
+# genuinely any-depth junk (__pycache__, *.pyc, .env*) matching everywhere.
+TOPLEVEL_DIRS=(data logs cluster_logs .venv .git .pytest_cache .ruff_cache .psf_env)
+ANYDEPTH=(__pycache__)
+
 RSYNC_EXCLUDES=()
-TAR_EXCLUDES=()
-for n in "${EXCLUDE_NAMES[@]}"; do
+TAR_EXCLUDES=(--no-anchored)            # any-depth section
+for n in "${ANYDEPTH[@]}"; do
   RSYNC_EXCLUDES+=(--exclude="$n")
   TAR_EXCLUDES+=(--exclude="$n")
 done
-# Glob excludes.
 RSYNC_EXCLUDES+=(--exclude='.env*' --exclude='*.pyc')
 TAR_EXCLUDES+=(--exclude='.env*' --exclude='*.pyc')
+TAR_EXCLUDES+=(--anchored)              # top-level-only section
+for n in "${TOPLEVEL_DIRS[@]}"; do
+  RSYNC_EXCLUDES+=(--exclude="/$n")     # rsync: leading / anchors to the transfer root
+  TAR_EXCLUDES+=(--exclude="./$n")      # tar: ./ + --anchored anchors to the archive root
+done
 
 HAVE_RSYNC=0
 command -v rsync >/dev/null 2>&1 && HAVE_RSYNC=1
