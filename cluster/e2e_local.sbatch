@@ -30,11 +30,11 @@ mkdir -p cluster_logs data
 module purge
 module load devel/python/3.11
 
-# --- uv env (NOT --frozen here: we add `accelerate`, so let uv resolve) -----
+# --- uv env (NOT --frozen here: pyproject gained `accelerate`, so let uv
+#     re-resolve the lock rather than fail on a stale --frozen check) ----------
 pip install --user -q uv || true
 export PATH="$HOME/.local/bin:$PATH"
-uv sync
-uv pip install -q accelerate
+uv sync                                   # installs accelerate (now a pyproject dep)
 source .venv/bin/activate
 
 # --- Optional secrets (HF_TOKEN can live here; LITELLM_* no longer needed) --
@@ -49,7 +49,7 @@ nvidia-smi || true
 # --- MuSiQue dev data sanity (must be materialised by hand; NOT the fixture) -
 if [[ ! -s data/raw/musique/musique_ans_v1.0_dev.jsonl ]]; then
   echo "ERROR: data/raw/musique/musique_ans_v1.0_dev.jsonl missing or empty."
-  echo "       Download the MuSiQue-Ans dev jsonl on the login node first (README §6g)."
+  echo "       Download the MuSiQue-Ans dev jsonl on the login node first (README §6b)."
   exit 1
 fi
 
