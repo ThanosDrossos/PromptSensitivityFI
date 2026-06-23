@@ -36,8 +36,10 @@ CLI knobs:
   --k-samples K           H_sem samples per prompt (default 3)
   --max-paraphrases M     cap per question (default 10)
   --out PATH              parquet (default data/e2e_metrics.parquet)
-  --include-posix         POSIX echo path on echo-capable models (context only)
-  --dry-run               print the plan, no gateway calls
+  --include-posix         POSIX path on echo-capable models (context only)
+  --paraphrase-only       MuSiQue-direct: build+persist paraphrases, then exit
+  --own-encoder           ESS_in/rho_u from the model's own hidden states (local)
+  --dry-run               print the plan, no model calls
 """
 
 from __future__ import annotations
@@ -46,6 +48,7 @@ import argparse
 import json
 import math
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -346,6 +349,20 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--out", type=str, default="data/e2e_metrics.parquet")
     parser.add_argument("--include-posix", action="store_true")
     parser.add_argument(
+        "--paraphrase-only", action="store_true",
+        help="MuSiQue-direct only: build + persist the paraphrase universe to "
+             "data/paraphrases_musique.parquet, then exit. The generator "
+             "pre-pass — run once before the per-model eval passes so the "
+             "(slow) generator model is loaded only in this step.",
+    )
+    parser.add_argument(
+        "--own-encoder", action="store_true",
+        help="Use each model's OWN last-layer hidden states (LocalHFClient."
+             "embed_hidden) for ESS_in / rho_u instead of the external mpnet "
+             "encoder. Requires provider:local models with has_hidden=true; "
+             "falls back to mpnet otherwise. Tags rows encoder_label=own_<key>.",
+    )
+    parser.add_argument(
         "--fast", action="store_true",
         help="Skip H_sem clustering / embeddings / POSIX (FI_in + f_mean only). "
              "Removes the biggest CPU cost; ~10x faster per cell.",
@@ -422,6 +439,22 @@ def main() -> int:
             logger.error("no valid question records loaded; bailing")
             return 1
 
+    # --- generator pre-pass: build + persist paraphrases, then stop ---------
+    if args.paraphrase_only:
+        if not musique_direct:
+            logger.error("--paraphrase-only requires --musique-direct N")
+            return 1
+        logger.info("--paraphrase-only: generating paraphrase universe for {} questions", len(questions))
+        paras = _generate_musique_paraphrases(config, questions, args.max_paraphrases)
+        print(json.dumps({
+            "paraphrase_only": True,
+            "questions": [q.id for q in questions],
+            "per_question_accepted": {k: len(v) for k, v in paras.items()},
+            "total_accepted_paraphrases": int(sum(len(v) for v in paras.values())),
+            "out": _MUSIQUE_PARAPHRASE_PARQUET,
+        }, indent=2))
+        return 0
+
     # --- plan ---------------------------------------------------------------
     cell_rows_by_q = {q.id: _build_cell_rows(q, families, ladders, levels) for q in questions}
     n_cells = sum(len(cell_rows_by_q[q.id]) for q in questions) * len(models)
@@ -489,11 +522,13 @@ def main() -> int:
                 if key in done_keys:
                     n_skipped += 1
                     continue
+                t_cell = time.perf_counter()
                 try:
                     row_dict = _run_cell(
                         config, q, row, model_key, paraphrases,
                         k_samples=args.k_samples, answer_max=answer_max, cot_max=cot_max,
                         include_posix=args.include_posix, fast=args.fast,
+                        own_encoder=args.own_encoder,
                     )
                 except Exception:  # noqa: BLE001 — isolate cell failures
                     n_failed += 1
@@ -505,6 +540,12 @@ def main() -> int:
                 rows_out.append(row_dict)
                 done_keys.add(key)
                 n_done += 1
+                # Per-cell timing so the first cell lets us extrapolate walltime.
+                logger.info(
+                    "cell {} done in {:.1f}s — qid={} family={} L{} model={}",
+                    n_done, time.perf_counter() - t_cell, q.id,
+                    row.ladder_family, row.level, model_key,
+                )
                 # CHECKPOINT after every cell so nothing is ever lost.
                 _checkpoint(rows_out, out_path)
 
@@ -545,6 +586,7 @@ def _run_cell(
     cot_max: int,
     include_posix: bool,
     fast: bool = False,
+    own_encoder: bool = False,
 ) -> dict:
     """Run one (question, ladder-row, model) cell -> a flat result row dict.
 
@@ -595,6 +637,7 @@ def _run_cell(
         logger.info("  binary F: pass={}/{}", int(sum(f_scores)), len(f_scores))
 
     n = len(paraphrases)
+    encoder_label = "external_mpnet"
     if fast:
         # Skip the quadratic H_sem path entirely.
         cluster_assignments = {}
@@ -618,10 +661,21 @@ def _run_cell(
 
         cluster_assignments = cluster_responses_pooled(responses_per_paraphrase, config=config)
 
-        prompt_embeddings = encode_texts(prompt_user_texts, config=config)
-        response_embeddings = {}
-        for i, samples in responses_per_paraphrase.items():
-            response_embeddings[i] = encode_texts(samples, config=config)
+        # Own-encoder path (Sprint 6): use the model's OWN last-layer hidden
+        # states for ESS_in / rho_u instead of the external mpnet proxy. Only
+        # for provider:local models exposing embed_hidden; mpnet otherwise.
+        use_own = own_encoder and model_entry.has_hidden and hasattr(client, "embed_hidden")
+        if use_own:
+            encoder_label = f"own_{model_key}"
+            prompt_embeddings = client.embed_hidden(prompt_user_texts)
+            response_embeddings = {
+                i: client.embed_hidden(samples) for i, samples in responses_per_paraphrase.items()
+            }
+        else:
+            prompt_embeddings = encode_texts(prompt_user_texts, config=config)
+            response_embeddings = {}
+            for i, samples in responses_per_paraphrase.items():
+                response_embeddings[i] = encode_texts(samples, config=config)
 
         posix_log_p = posix_lengths = None
         if include_posix and model_entry.echo_completions and row.ladder_family == "context":
@@ -640,7 +694,7 @@ def _run_cell(
         response_embeddings=response_embeddings,
         posix_log_p=posix_log_p,
         posix_lengths=posix_lengths,
-        encoder_label="external_mpnet",
+        encoder_label=encoder_label,
     )
     row_dict = tup.model_dump()
     # v6 columns added AFTER model_dump so metrics/ stays untouched.

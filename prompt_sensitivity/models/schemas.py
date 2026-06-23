@@ -4,9 +4,10 @@ The schemas double as the cache key (everything in `LLMRequest` participates in
 the request hash) and as the on-disk record format.
 
 Pre-cluster (Sprint 1-5) the only provider is `litellm` (KIT/DSI gateway). The
-literal is left narrow so an accidentally-routed call (e.g. typo "openai")
-fails Pydantic validation rather than reaching the gateway with a wrong base
-URL. Add new providers explicitly when the cluster path lands in Sprint 6.
+literal is kept narrow so an accidentally-routed call (e.g. typo "openai")
+fails Pydantic validation rather than reaching a backend with a wrong base URL.
+Sprint 6 (KIT cluster) adds `local` — Hugging Face `transformers` models loaded
+in-process; see `models/local_hf.py`.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 Role = Literal["system", "user", "assistant"]
-Provider = Literal["litellm"]
+Provider = Literal["litellm", "local"]
 
 
 class ChatMessage(BaseModel):

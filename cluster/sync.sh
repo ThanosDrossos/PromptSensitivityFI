@@ -54,6 +54,15 @@ TAR_EXCLUDES+=(--exclude='.env*' --exclude='*.pyc')
 HAVE_RSYNC=0
 command -v rsync >/dev/null 2>&1 && HAVE_RSYNC=1
 
+# Result parquets to fetch on `pull` (best-effort — absent until a job runs).
+# cluster_smoke = smoke roundtrip; cluster_e2e_musique = the local e2e pilot;
+# cluster_posix_probe = the optional exact-POSIX probe.
+PULL_FILES=(
+  data/cluster_smoke.parquet
+  data/cluster_e2e_musique.parquet
+  data/cluster_posix_probe.parquet
+)
+
 # ---- rsync transport (preferred) ------------------------------------------
 
 push_rsync() {
@@ -62,9 +71,12 @@ push_rsync() {
 
 pull_rsync() {
   rsync -avz -e "$SSH_CMD" "$REMOTE:$REMOTE_DIR/cluster_logs/" ./cluster_logs/
-  rsync -avz -e "$SSH_CMD" "$REMOTE:$REMOTE_DIR/data/cluster_smoke.parquet" \
-    ./data/cluster_smoke.parquet || \
-    echo "   (data/cluster_smoke.parquet not present yet — has the job finished?)"
+  for f in "${PULL_FILES[@]}"; do
+    rsync -avz -e "$SSH_CMD" "$REMOTE:$REMOTE_DIR/$f" "./$f" \
+      || echo "   ($f not present yet)"
+  done
+  rsync -avz -e "$SSH_CMD" "$REMOTE:$REMOTE_DIR/data/plots/" ./data/plots/ \
+    || echo "   (data/plots/ not present yet)"
 }
 
 # ---- tar-over-ssh transport (fallback when rsync is absent) ---------------
@@ -83,11 +95,19 @@ pull_tar() {
   else
     echo "   (cluster_logs/ not present yet)"
   fi
-  # parquet (best-effort)
-  if $SSH_CMD "$REMOTE" "test -f '$REMOTE_DIR/data/cluster_smoke.parquet'"; then
-    $SSH_CMD "$REMOTE" "tar czf - -C '$REMOTE_DIR' data/cluster_smoke.parquet" | tar xzf - -C .
+  # result parquets (best-effort)
+  for f in "${PULL_FILES[@]}"; do
+    if $SSH_CMD "$REMOTE" "test -f '$REMOTE_DIR/$f'"; then
+      $SSH_CMD "$REMOTE" "tar czf - -C '$REMOTE_DIR' '$f'" | tar xzf - -C .
+    else
+      echo "   ($f not present yet)"
+    fi
+  done
+  # plots dir (best-effort)
+  if $SSH_CMD "$REMOTE" "test -d '$REMOTE_DIR/data/plots'"; then
+    $SSH_CMD "$REMOTE" "tar czf - -C '$REMOTE_DIR' data/plots" | tar xzf - -C .
   else
-    echo "   (data/cluster_smoke.parquet not present yet — has the job finished?)"
+    echo "   (data/plots/ not present yet)"
   fi
 }
 
@@ -99,8 +119,8 @@ push() {
 }
 
 pull() {
-  echo ">> pull  cluster_logs/  +  data/cluster_smoke.parquet"
-  mkdir -p ./cluster_logs ./data
+  echo ">> pull  cluster_logs/  +  result parquets  +  data/plots/"
+  mkdir -p ./cluster_logs ./data ./data/plots
   if [[ $HAVE_RSYNC -eq 1 ]]; then pull_rsync; else pull_tar; fi
 }
 

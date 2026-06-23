@@ -215,12 +215,75 @@ and the other local targets still work from PowerShell via `.\tasks.ps1`.
 
 ---
 
+## 6b. Local in-process models (Sprint 6 — the real pilot, NO gateway)
+
+The smoke above used the LiteLLM gateway. The pilot drops it entirely: the three
+eval models (Llama-3.1-8B, Mistral-7B-v0.3, Qwen2.5-7B) and the Qwen paraphrase
+generator load **in-process via HF transformers** on the GPU (`provider: local`,
+`models/local_hf.py`). This is the only path that yields token logprobs, exact
+teacher-forced scoring (POSIX), and last-layer hidden states (ESS_in^own) at
+once. `LITELLM_*` / `$HOME/.psf_env` are **not needed** for this path.
+
+### Manual prerequisites (one-time, login node — the job does NOT do these)
+
+1. **Accept the gated-model licenses** (browser, logged into your HF account):
+   <https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct> and
+   <https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3>. Qwen2.5-7B is open.
+2. **Authenticate HF on the cluster** so gated downloads work:
+   ```bash
+   huggingface-cli login        # paste a token from https://huggingface.co/settings/tokens
+   ```
+   (Token lands in `~/.cache/huggingface/`, on the shared `$HOME` — the compute
+   node reuses it. Alternatively put `HF_TOKEN=hf_...` in `$HOME/.psf_env`.)
+3. **Pre-cache the weights** on the login node (internet, no time limit) so the
+   job never downloads inside its walltime:
+   ```bash
+   ~/.local/bin/uv run python - <<'PY'
+   from transformers import AutoModelForCausalLM, AutoTokenizer
+   for m in ["meta-llama/Llama-3.1-8B-Instruct",
+             "mistralai/Mistral-7B-Instruct-v0.3",
+             "Qwen/Qwen2.5-7B-Instruct"]:
+       AutoTokenizer.from_pretrained(m); AutoModelForCausalLM.from_pretrained(m)
+       print("cached", m)
+   PY
+   ```
+   (Pre-cache DeBERTa NLI the same way — see §2c.)
+4. **Materialise the real MuSiQue dev data** at the path the loader checks:
+   `data/raw/musique/musique_ans_v1.0_dev.jsonl` (MuSiQue-Ans dev, via the
+   official `StonyBrookNLP/musique` `download_data.sh` or an HF mirror). The toy
+   `cluster/fixtures/` file is for wiring only — `e2e_local.sbatch` does NOT copy
+   it and aborts if the real jsonl is missing.
+
+### Run
+
+```bash
+bash cluster/run.sh push                 # code only (data/ excluded)
+ssh $BWUC_USER@uc3.scc.kit.edu
+cd PromptSensitivityFI
+sbatch cluster/e2e_local.sbatch          # gpu_a100_il, 1 GPU, up to 6h
+squeue --me
+```
+
+The job runs a **preflight** (`local_check` — generate + logprobs + teacher-forced
+score + hidden states for all 3 models, aborts on any failure), then a paraphrase
+pre-pass, the 3 eval passes (both ladders, `--own-encoder`), an optional exact
+POSIX probe, and `show_results` + `plot_pilot`. Pull results back:
+
+```bash
+bash cluster/run.sh pull                 # fetches cluster_e2e_musique.parquet + plots
+uv run python -m prompt_sensitivity.scripts.show_results --in data/cluster_e2e_musique.parquet
+```
+
+---
+
 ## 7. Out of scope (next sprints)
 
-No vLLM, no model-weight downloads, no open-weight models on the cluster yet;
-no headline pilot on the cluster; no automated 2FA (you unlock the SSH key by
-hand every 8 hours). Once this is green, the next sprint adds a vLLM
-open-weight smoke (Llama-3.1-8B on `gpu_h100`), then the pilot moves over.
+No automated 2FA (you unlock the SSH key by hand every 8 hours). The Sprint-6
+local path uses **transformers generation**, which is slow at scale — the next
+step for a scaled run is batched generation or a vLLM **offline** (`LLM.generate`,
+in-process, still no API) generator, keeping transformers only for the
+hidden-state passes. Full-vocab `S_tau` (true token entropy) is now reachable but
+deferred; the pilot keeps the MC-over-clusters estimate.
 
 ---
 

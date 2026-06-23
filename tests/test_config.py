@@ -13,23 +13,36 @@ def test_models_registered():
     cfg = load_config()
     expected = {"llama_3_1_8b", "mistral_7b_v03", "qwen_2_5_7b", "gpt_4o"}
     assert expected <= set(cfg.models.keys())
-    # Pre-cluster, every model routes through the LiteLLM gateway.
-    for k in expected:
-        assert cfg.models[k].provider == "litellm"
+    # Sprint 6: the three EVAL models run locally (in-process transformers);
+    # gpt_4o stays a (now-unused-on-cluster) gateway entry.
+    for k in ("llama_3_1_8b", "mistral_7b_v03", "qwen_2_5_7b"):
+        assert cfg.models[k].provider == "local"
+    assert cfg.models["gpt_4o"].provider == "litellm"
 
 
-def test_capability_flags_match_gateway_matrix():
-    """Encodes the capability matrix from registry.py.
+def test_capability_flags_match_local_backend():
+    """Sprint 6 capability matrix (models/local_hf.py).
 
-    Open-weight Together models support echo (POSIX); GPT-4o does not.
-    No model exposes its own hidden state through the gateway (cluster-only).
+    In-process transformers exposes echo-style teacher-forced scoring (POSIX)
+    AND last-layer hidden states (ESS_in^own) for the three local eval models.
+    The legacy gateway gpt_4o entry has neither.
     """
     cfg = load_config()
     for k in ("llama_3_1_8b", "mistral_7b_v03", "qwen_2_5_7b"):
-        assert cfg.models[k].echo_completions is True, f"{k} should support echo via gateway"
-    assert cfg.models["gpt_4o"].echo_completions is False, "GPT-4o has no echo on chat models"
-    for k in cfg.models:
-        assert cfg.models[k].has_hidden is False, f"{k} hidden states are cluster-only"
+        assert cfg.models[k].echo_completions is True, f"{k} supports exact teacher forcing"
+        assert cfg.models[k].has_hidden is True, f"{k} exposes its own hidden states locally"
+    assert cfg.models["gpt_4o"].echo_completions is False, "gateway gpt_4o has no echo"
+    assert cfg.models["gpt_4o"].has_hidden is False, "gateway gpt_4o has no hidden states"
+
+
+def test_only_expected_models_are_local():
+    """Guard against a future model being added with provider=local / has_hidden
+    but without review — both imply the in-process transformers backend."""
+    cfg = load_config()
+    local_expected = {"llama_3_1_8b", "mistral_7b_v03", "qwen_2_5_7b"}
+    for k, m in cfg.models.items():
+        if m.provider == "local" or m.has_hidden:
+            assert k in local_expected, f"{k} unexpectedly marked provider=local/has_hidden=True"
 
 
 def test_api_routes_through_litellm():
