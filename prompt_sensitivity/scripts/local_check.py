@@ -18,6 +18,7 @@ Run: `python -m prompt_sensitivity.scripts.local_check`
 
 from __future__ import annotations
 
+import argparse
 import gc
 import sys
 from dataclasses import dataclass
@@ -146,13 +147,21 @@ def _probe(model_key: str) -> LocalCheckRow:
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser(description="Preflight for provider:local models.")
+    ap.add_argument("--models", default=None,
+                    help="comma list of model keys to check (default: all provider:local).")
+    args = ap.parse_args()
+
     configure_logging("local_check")
     config = load_config()
     reset_clients()
 
     local_keys = [k for k, e in config.models.items() if e.provider == "local"]
+    if args.models:
+        want = {m.strip() for m in args.models.split(",") if m.strip()}
+        local_keys = [k for k in local_keys if k in want]
     if not local_keys:
-        logger.error("no provider:local models in config — nothing to check")
+        logger.error("no provider:local models to check (filter={!r})", args.models)
         return 1
     logger.info("checking {} local models: {}", len(local_keys), local_keys)
 

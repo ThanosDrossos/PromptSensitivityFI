@@ -158,6 +158,36 @@ def _pick_musique_questions(config, n: int) -> list[MultiHopQuestion]:
     return all_mq[:n]
 
 
+def _pick_musique_questions_stratified(
+    config, per_stratum: int, seed: int
+) -> list[MultiHopQuestion]:
+    """Pick `per_stratum` questions from EACH hop stratum (2-, 3-, 4-hop).
+
+    Deterministic (seeded shuffle) so the paraphrase-prep job and every per-model
+    run select the IDENTICAL question set — the paraphrase universe must be
+    shared across models for FI_in to be comparable. Used by the full cluster
+    run (`--musique-strata`).
+    """
+    import random
+
+    all_mq = _load_musique(config)
+    by_hops: dict[int, list[MultiHopQuestion]] = {}
+    for q in all_mq:
+        by_hops.setdefault(int(q.n_hops or 0), []).append(q)
+
+    rng = random.Random(seed)
+    picked: list[MultiHopQuestion] = []
+    for hops in sorted(by_hops):
+        if hops < 2:  # MuSiQue is 2-4 hop; ignore anything degenerate
+            continue
+        group = sorted(by_hops[hops], key=lambda q: q.id)  # stable pre-shuffle order
+        rng.shuffle(group)
+        chosen = group[:per_stratum]
+        picked.extend(chosen)
+        logger.info("stratum {}hop: {} available -> picked {}", hops, len(by_hops[hops]), len(chosen))
+    return picked
+
+
 _MUSIQUE_PARAPHRASE_PARQUET = "data/paraphrases_musique.parquet"
 
 
@@ -332,6 +362,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--n-questions", type=int, default=5)
     parser.add_argument("--musique-direct", type=int, default=0,
                         help="Sample N MuSiQue questions directly (live paraphrase gen).")
+    parser.add_argument("--musique-strata", type=int, default=0,
+                        help="Stratified MuSiQue: N questions PER hop-stratum (2/3/4-hop), "
+                             "seeded by config.random_seed so the paraphrase-prep job and all "
+                             "per-model runs share ONE question set. Overrides --musique-direct.")
     parser.add_argument(
         "--singleton", action="store_true",
         help="MuSiQue-direct: skip paraphrase generation, use the original "
@@ -403,10 +437,17 @@ def main() -> int:
             return 1
 
     # --- select questions + paraphrases ------------------------------------
-    musique_direct = args.musique_direct > 0
+    musique_direct = args.musique_direct > 0 or args.musique_strata > 0
     if musique_direct:
-        logger.info("MuSiQue-direct mode: sampling {} questions", args.musique_direct)
-        questions = _pick_musique_questions(config, args.musique_direct)
+        if args.musique_strata > 0:
+            logger.info("MuSiQue stratified: {} questions/hop-stratum (seed={})",
+                        args.musique_strata, config.random_seed)
+            questions = _pick_musique_questions_stratified(
+                config, args.musique_strata, config.random_seed
+            )
+        else:
+            logger.info("MuSiQue-direct mode: sampling {} questions", args.musique_direct)
+            questions = _pick_musique_questions(config, args.musique_direct)
         if not questions:
             logger.error("no MuSiQue questions loaded; bailing")
             return 1

@@ -276,6 +276,41 @@ uv run python -m prompt_sensitivity.scripts.show_results --in data/cluster_e2e_m
 
 ---
 
+## 6c. Full production run (scaled, parallel across models)
+
+Once the §6b pilot is green, the full run scales it up: **stratified questions**
+(equal numbers of 2-/3-/4-hop), **both context ladders** (`random` + `gold_first`,
+so the context-vs-reasoning comparison is fair), **all context levels**
+(0,2,4,6,8,10), both families, all 3 models, `--own-encoder`. Same manual
+prerequisites as §6b (they're already done if the pilot ran).
+
+**Design:** a SLURM dependency chain — one paraphrase-prep job builds the SHARED
+paraphrase universe once (FI_in is only comparable across models when `|U_q|` is
+identical), then a **per-model array** runs the 3 models in parallel, one GPU
+each. Each model writes its own `data/full_<model>.parquet` (no write races); you
+merge locally after pulling.
+
+```bash
+# 1) push, then on the cluster:
+bash cluster/run_full.sh            # 10 questions / hop-stratum (=30 q). e.g. `... 16` for more
+squeue --me                         # prep job, then array tasks <id>_0/_1/_2
+
+# 2) when all array tasks show DONE, from your laptop:
+bash cluster/run.sh pull            # fetches data/full_*.parquet (+ logs)
+uv run python -m prompt_sensitivity.scripts.merge_results          # -> data/full_run.parquet
+uv run python -m prompt_sensitivity.scripts.show_results --in data/full_run.parquet
+uv run python -m prompt_sensitivity.scripts.plot_pilot   --in data/full_run.parquet --out data/plots
+```
+
+**Walltime / cost** (pilot-measured: Llama ~135 s/cell, Mistral ~80 s, Qwen ~48 s;
+~15 cells/question with full levels + 2 ladders): at 30 questions Llama is ~17 h,
+the others less — they run concurrently, so wall ≈ 17 h, inside the 24 h request.
+The e2e **checkpoints every cell**, so a timed-out task resumes on resubmit (done
+cells skip): `sbatch --array=0 cluster/full_run.sbatch` re-runs just Llama. Bump
+`run_full.sh <N>` and/or `--time` in `full_run.sbatch` to go bigger.
+
+---
+
 ## 7. Out of scope (next sprints)
 
 No automated 2FA (you unlock the SSH key by hand every 8 hours). The Sprint-6

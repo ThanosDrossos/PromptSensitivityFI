@@ -70,6 +70,11 @@ PULL_FILES=(
   data/cluster_smoke.parquet
   data/cluster_e2e_musique.parquet
   data/cluster_posix_probe.parquet
+  data/paraphrases_musique.parquet
+  data/full_llama_3_1_8b.parquet
+  data/full_mistral_7b_v03.parquet
+  data/full_qwen_2_5_7b.parquet
+  data/full_run.parquet
 )
 
 # ---- rsync transport (preferred) ------------------------------------------
