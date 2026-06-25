@@ -61,6 +61,7 @@ def build_metric_tuple(
     posix_log_p: np.ndarray | None = None,
     posix_lengths: np.ndarray | None = None,
     encoder_label: str = "external_mpnet",
+    config: Any = None,
 ) -> MetricTuple:
     """Compute the 11-scalar MetricTuple for one (q, ladder, level, model) cell.
 
@@ -118,6 +119,20 @@ def build_metric_tuple(
     fi_vals = [min(fi_curve[k], _cap) for k in fi_ks]
     aufi = aufi_in(fi_curve, n=len(scores))
 
+    # P1-3: per-k percentile bootstrap CI on FI_in(k) (§7.6.3), aligned with fi_ks.
+    from .fi_in import fi_in_bootstrap
+    if config is not None:
+        boot = fi_in_bootstrap(
+            scores, ks=fi_ks,
+            n_iterations=config.bootstrap.n_iterations,
+            confidence=config.bootstrap.confidence,
+            seed=config.random_seed,
+        )
+    else:
+        boot = fi_in_bootstrap(scores, ks=fi_ks)
+    fi_ci_lower = [boot[k][0] for k in fi_ks]
+    fi_ci_upper = [boot[k][1] for k in fi_ks]
+
     # Mean F-score (raw accuracy). Useful for plots; AUFI_in is the integral
     # so the raw rate is recoverable but inconvenient.
     f_mean_val: float | None = float(np.mean(scores)) if scores else None
@@ -151,6 +166,8 @@ def build_metric_tuple(
         aufi_in=aufi,
         fi_in_curve_ks=fi_ks,
         fi_in_curve_vals=fi_vals,
+        fi_in_ci_lower=fi_ci_lower,
+        fi_in_ci_upper=fi_ci_upper,
         fi_out_mean=fi_out_mean,
         fi_out_var=fi_out_var,
         s_tau_mean=s_tau_mean,

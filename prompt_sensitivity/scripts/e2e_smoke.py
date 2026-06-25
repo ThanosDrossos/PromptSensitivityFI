@@ -749,6 +749,7 @@ def _run_cell(
         posix_log_p=posix_log_p,
         posix_lengths=posix_lengths,
         encoder_label=encoder_label,
+        config=config,
     )
     row_dict = tup.model_dump()
     # v6 columns added AFTER model_dump so metrics/ stays untouched.

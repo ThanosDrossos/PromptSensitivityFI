@@ -45,3 +45,11 @@ def test_p0_3_fi_in_curve_persisted():
 def test_p0_4_fi_out_var_non_negative():
     t = _build()
     assert t.fi_out_var is not None and t.fi_out_var >= 0.0
+
+
+def test_p1_3_bootstrap_ci_brackets_curve():
+    t = _build()
+    assert t.fi_in_ci_lower is not None and t.fi_in_ci_upper is not None
+    assert len(t.fi_in_ci_lower) == len(t.fi_in_curve_vals) == len(t.fi_in_ci_upper)
+    for lo, v, hi in zip(t.fi_in_ci_lower, t.fi_in_curve_vals, t.fi_in_ci_upper):
+        assert lo - 1e-9 <= v <= hi + 1e-9
