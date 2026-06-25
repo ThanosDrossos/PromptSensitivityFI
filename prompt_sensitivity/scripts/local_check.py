@@ -43,22 +43,29 @@ class LocalCheckRow:
     model_key: str
     model_id: str
     generate_ok: bool
-    logprobs_ok: bool
-    score_ok: bool
-    hidden_ok: bool
+    logprobs_ok: bool | None   # None = not required (capability flag off)
+    score_ok: bool | None
+    hidden_ok: bool | None
     hidden_dim: int | None
     text: str
     error: str | None = None
 
     @property
     def passed(self) -> bool:
+        # P3-3b: a capability fails the gate only if it was REQUIRED (flag on ->
+        # not None) and came back False. A generator (all flags off) passes on
+        # generate alone.
         return (
             self.error is None
             and self.generate_ok
-            and self.logprobs_ok
-            and self.score_ok
-            and self.hidden_ok
+            and self.logprobs_ok is not False
+            and self.score_ok is not False
+            and self.hidden_ok is not False
         )
+
+
+def _okstr(v: bool | None) -> str:
+    return "n/a" if v is None else ("yes" if v else "NO")
 
 
 def _free_vram() -> None:
@@ -96,38 +103,46 @@ def _probe(model_key: str) -> LocalCheckRow:
         ))
         generate_ok = bool(gen.text.strip())
 
-        # 2. chat logprobs
-        lp = client.complete(LLMRequest(
-            provider=entry.provider,  # type: ignore[arg-type]
-            model_id=entry.model_id,
-            messages=[{"role": "user", "content": PROBE_USER_MESSAGE}],
-            temperature=0.0, top_p=1.0, max_tokens=8, seed=42,
-            logprobs=True, top_logprobs=5,
-            purpose="local_check_logprobs",
-        ))
-        logprobs_ok = bool(lp.token_logprobs) and len(lp.token_logprobs[0].top_logprobs) > 0
+        # 2. chat logprobs — only required if the model claims it (P3-3b: a
+        #    generator like Phi-4 has the flag off, so this is skipped/n-a).
+        logprobs_ok: bool | None = None
+        if entry.chat_logprobs:
+            lp = client.complete(LLMRequest(
+                provider=entry.provider,  # type: ignore[arg-type]
+                model_id=entry.model_id,
+                messages=[{"role": "user", "content": PROBE_USER_MESSAGE}],
+                temperature=0.0, top_p=1.0, max_tokens=8, seed=42,
+                logprobs=True, top_logprobs=5,
+                purpose="local_check_logprobs",
+            ))
+            logprobs_ok = bool(lp.token_logprobs) and len(lp.token_logprobs[0].top_logprobs) > 0
 
-        # 3. exact teacher-forced score (POSIX prerequisite)
-        sc = client.score_continuation(CompletionRequest(
-            provider=entry.provider,  # type: ignore[arg-type]
-            model_id=entry.model_id,
-            prompt=SCORE_PROMPT, max_tokens=0, echo=True, logprobs=1, temperature=0.0,
-            purpose="local_check_score",
-        ))
-        score_ok = bool(sc.token_logprobs) and all(
-            np.isfinite(t.logprob) for t in sc.token_logprobs
-        )
+        # 3. exact teacher-forced score (POSIX) — only if echo_completions.
+        score_ok: bool | None = None
+        if entry.echo_completions:
+            sc = client.score_continuation(CompletionRequest(
+                provider=entry.provider,  # type: ignore[arg-type]
+                model_id=entry.model_id,
+                prompt=SCORE_PROMPT, max_tokens=0, echo=True, logprobs=1, temperature=0.0,
+                purpose="local_check_score",
+            ))
+            score_ok = bool(sc.token_logprobs) and all(
+                np.isfinite(t.logprob) for t in sc.token_logprobs
+            )
 
-        # 4. hidden states
-        vec = client.embed_hidden([HIDDEN_PROBE])
-        hidden_ok = (
-            isinstance(vec, np.ndarray)
-            and vec.shape[0] == 1
-            and vec.ndim == 2
-            and vec.shape[1] > 0
-            and bool(np.isfinite(vec).all())
-        )
-        hidden_dim = int(vec.shape[1]) if vec.ndim == 2 and vec.shape[0] else None
+        # 4. hidden states — only if has_hidden.
+        hidden_ok: bool | None = None
+        hidden_dim: int | None = None
+        if entry.has_hidden:
+            vec = client.embed_hidden([HIDDEN_PROBE])
+            hidden_ok = (
+                isinstance(vec, np.ndarray)
+                and vec.shape[0] == 1
+                and vec.ndim == 2
+                and vec.shape[1] > 0
+                and bool(np.isfinite(vec).all())
+            )
+            hidden_dim = int(vec.shape[1]) if vec.ndim == 2 and vec.shape[0] else None
 
         return LocalCheckRow(
             model_key=model_key, model_id=entry.model_id,
@@ -185,15 +200,15 @@ def main() -> int:
         print(
             f"{r.model_key:<18} "
             f"{('yes' if r.generate_ok else 'NO'):>4} "
-            f"{('yes' if r.logprobs_ok else 'NO'):>5} "
-            f"{('yes' if r.score_ok else 'NO'):>6} "
-            f"{('yes' if r.hidden_ok else 'NO'):>7} "
+            f"{_okstr(r.logprobs_ok):>5} "
+            f"{_okstr(r.score_ok):>6} "
+            f"{_okstr(r.hidden_ok):>7} "
             f"{(str(r.hidden_dim) if r.hidden_dim else '-'):>5} "
             f"{('yes' if r.passed else 'NO'):>5}  {r.text!r}"
         )
     print("=" * 96)
-    print(f"PASS: {n_pass}/{len(rows)} local models fully capable "
-          "(generate + logprobs + teacher-forced score + hidden states)")
+    print(f"PASS: {n_pass}/{len(rows)} local models meet their required capabilities "
+          "(generate always; logprobs/score/hidden only where the config flag is on)")
     return 0 if n_pass == len(rows) else 1
 
 
