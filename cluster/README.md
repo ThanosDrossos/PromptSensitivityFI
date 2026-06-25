@@ -242,12 +242,16 @@ once. `LITELLM_*` / `$HOME/.psf_env` are **not needed** for this path.
    from transformers import AutoModelForCausalLM, AutoTokenizer
    for m in ["meta-llama/Llama-3.1-8B-Instruct",
              "mistralai/Mistral-7B-Instruct-v0.3",
-             "Qwen/Qwen2.5-7B-Instruct"]:
+             "Qwen/Qwen2.5-7B-Instruct",
+             "microsoft/phi-4"]:                       # P3-3: paraphrase generator + judge
        AutoTokenizer.from_pretrained(m); AutoModelForCausalLM.from_pretrained(m)
        print("cached", m)
    PY
    ```
-   (Pre-cache DeBERTa NLI the same way — see §2c.)
+   (Pre-cache DeBERTa NLI the same way — see §2c.) **Phi-4** (`microsoft/phi-4`,
+   the paraphrase generator+judge) is **MIT-licensed — no token gating**; you can
+   also grab it with `huggingface-cli download microsoft/phi-4`. It's ~28 GB bf16
+   and runs alongside DeBERTa (~1.6 GB) inside a 40 GB A100 for the prep job.
 4. **Materialise the real MuSiQue dev data** at the path the loader checks:
    `data/raw/musique/musique_ans_v1.0_dev.jsonl` (MuSiQue-Ans dev, via the
    official `StonyBrookNLP/musique` `download_data.sh` or an HF mirror). The toy
