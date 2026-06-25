@@ -163,19 +163,39 @@ def main() -> int:
     df = pd.read_parquet(path)
     logger.info("loaded {} cells from {}", len(df), path)
 
-    # 1. Per-cell table.
-    cols = [c for c in [
+    # 1. Per-cell tables — HEADLINE vs DIAGNOSTIC (P2-1). The diagnostic metrics
+    #    largely duplicate headline info at this sample (Glossary §9.4): spread ~
+    #    AUFI_in, variation_ratio ~ coarse S_tau, rho_u ~flat, h_sem_var ~ h_sem_mean
+    #    at low k. They stay in the parquet; they're just hidden from the headline.
+    headline_cols = [c for c in [
         "question_id", "dataset", "ladder_family", "ladder_type_raw", "level",
-        "model_key", "f_mean", "final_answer_f_mean", "aufi_in", "spread", "n_paraphrases",
+        "model_key", "f_mean", "final_answer_f_mean", "aufi_in", "posix_psi",
+        "fi_out_mean", "h_sem_mean", "n_paraphrases",
+    ] if c in df.columns]
+    diagnostic_cols = [c for c in [
+        "spread", "variation_ratio", "rho_u", "h_sem_var", "ess_in",
+        "s_tau_mean", "consistency_mean",
     ] if c in df.columns]
     print()
     print("=" * 110)
-    print(f"RESULTS  ({len(df)} cells)  from {path.name}")
+    print(f"HEADLINE  ({len(df)} cells)  from {path.name}")
     print("=" * 110)
-    show = df[cols].copy()
+    show = df[headline_cols].copy()
     if "question_id" in show:
         show["question_id"] = show["question_id"].str.slice(0, 22)
     print(show.to_string(index=False, float_format=lambda x: f"{x:.3f}"))
+
+    if diagnostic_cols:
+        id_cols = [c for c in ["question_id", "ladder_family", "level", "model_key"]
+                   if c in df.columns]
+        diag = df[id_cols + diagnostic_cols].copy()
+        if "question_id" in diag:
+            diag["question_id"] = diag["question_id"].str.slice(0, 16)
+        print()
+        print("-" * 110)
+        print("DIAGNOSTIC  (de-emphasised; redundant with headline at this sample — Glossary §9.4)")
+        print("-" * 110)
+        print(diag.to_string(index=False, float_format=lambda x: f"{x:.3f}"))
 
     # 2. v6 headline: mean chain-F by (family, level).
     if {"ladder_family", "level", "f_mean"} <= set(df.columns):
