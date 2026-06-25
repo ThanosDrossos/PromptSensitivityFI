@@ -40,3 +40,8 @@ def test_p0_3_fi_in_curve_persisted():
     cap = math.log2(6 + 1)
     assert len(t.fi_in_curve_vals) == 21
     assert all(math.isfinite(v) and 0.0 <= v <= cap + 1e-9 for v in t.fi_in_curve_vals)
+
+
+def test_p0_4_fi_out_var_non_negative():
+    t = _build()
+    assert t.fi_out_var is not None and t.fi_out_var >= 0.0

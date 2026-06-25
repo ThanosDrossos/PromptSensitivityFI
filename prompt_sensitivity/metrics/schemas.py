@@ -64,6 +64,7 @@ class MetricTuple(BaseModel):
     fi_in_curve_ks: list[float] | None = None
     fi_in_curve_vals: list[float] | None = None
     fi_out_mean: float | None = None    # mean FI_out across paraphrases
+    fi_out_var: float | None = None     # P0-4: §7.4.2 second-order Output-Raum signal
 
     # Tier B — Errica two-number deliverable
     s_tau_mean: float | None = None     # mean S_tau across paraphrases

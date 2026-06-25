@@ -86,7 +86,7 @@ def build_metric_tuple(
 
     # FI_out + S_τ per prompt (uses the same cluster assignments).
     fi_out_per = fi_out(cluster_assignments, a_q_size=a_q)
-    fi_out_mean, _ = fi_out_summary(fi_out_per)
+    fi_out_mean, fi_out_var = fi_out_summary(fi_out_per)
 
     s_tau_per = {
         idx: s_tau_freeform(assign, a_q) for idx, assign in cluster_assignments.items()
@@ -152,6 +152,7 @@ def build_metric_tuple(
         fi_in_curve_ks=fi_ks,
         fi_in_curve_vals=fi_vals,
         fi_out_mean=fi_out_mean,
+        fi_out_var=fi_out_var,
         s_tau_mean=s_tau_mean,
         consistency_mean=consistency,
         spread=spread_val,
