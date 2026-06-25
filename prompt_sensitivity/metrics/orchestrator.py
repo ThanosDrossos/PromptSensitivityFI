@@ -25,7 +25,7 @@ import numpy as np
 
 from .errica import s_tau_freeform, s_tau_summary, tvd_consistency
 from .ess_in import ess_in as ess_in_fn
-from .fi_in import aufi_in_from_scores
+from .fi_in import aufi_in, fi_in_curve
 from .fi_out import estimate_a_q, fi_out, fi_out_summary
 from .h_sem import entropy_from_assignment
 from .posix import posix as posix_fn
@@ -109,8 +109,14 @@ def build_metric_tuple(
     else:
         var_ratio = None
 
-    # AUFI_in over k in [0, 1].
-    aufi = aufi_in_from_scores(scores)
+    # FI_in(k) curve (PRIMARY deliverable, §7.3.2) — persist it AND reuse it for
+    # AUFI_in so we don't integrate twice. +inf is clamped to log2(N+1) before
+    # persisting so the parquet column stays finite (P0-3).
+    fi_curve = fi_in_curve(scores)
+    fi_ks = sorted(fi_curve.keys())
+    _cap = float(np.log2(len(scores) + 1))
+    fi_vals = [min(fi_curve[k], _cap) for k in fi_ks]
+    aufi = aufi_in(fi_curve, n=len(scores))
 
     # Mean F-score (raw accuracy). Useful for plots; AUFI_in is the integral
     # so the raw rate is recoverable but inconvenient.
@@ -143,6 +149,8 @@ def build_metric_tuple(
         model_key=model_key,
         f_mean=f_mean_val,
         aufi_in=aufi,
+        fi_in_curve_ks=fi_ks,
+        fi_in_curve_vals=fi_vals,
         fi_out_mean=fi_out_mean,
         s_tau_mean=s_tau_mean,
         consistency_mean=consistency,

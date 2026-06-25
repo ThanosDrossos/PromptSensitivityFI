@@ -58,6 +58,11 @@ class MetricTuple(BaseModel):
 
     # Tier A — primary novel contribution
     aufi_in: float | None = None        # area under FI_in(k) curve, k in [0,1]
+    # P0-3: the FI_in(k) curve itself is the PRIMARY deliverable (§7.3.2); persist
+    # it, not just its scalar integral. ks is the 21-pt [0,1] grid; vals are bits
+    # with +inf clamped to log2(N+1) before persisting (parquet stays finite).
+    fi_in_curve_ks: list[float] | None = None
+    fi_in_curve_vals: list[float] | None = None
     fi_out_mean: float | None = None    # mean FI_out across paraphrases
 
     # Tier B — Errica two-number deliverable
