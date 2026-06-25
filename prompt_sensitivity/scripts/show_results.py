@@ -219,6 +219,19 @@ def main() -> int:
         if fvals:
             print(f"f_mean range: [{min(fvals):.3f}, {max(fvals):.3f}], mean {sum(fvals)/len(fvals):.3f}")
 
+    # P1-4: collinearity guard. If AUFI_in is just a monotone transform of mean F
+    # at this sample, the headline must be the FI_in(k) curve, not the scalar
+    # (AUFI_metrics_revisit §5.5/§6). Paired dropna so misaligned NaNs can't crash.
+    if {"f_mean", "aufi_in"} <= set(df.columns):
+        from scipy.stats import spearmanr
+        pair = df[["f_mean", "aufi_in"]].dropna()
+        rho = spearmanr(pair["f_mean"], pair["aufi_in"])[0] if len(pair) >= 5 else float("nan")
+        print(f"\nCOLLINEARITY CHECK: Spearman(f_mean, aufi_in) = {rho:.3f}")
+        if abs(rho) > 0.95:
+            print("  WARNING: AUFI_in is essentially a transform of mean F at this sample.")
+            print("  Headline should be the FI_in(k) curve, not the AUFI_in scalar.")
+            print("  See AUFI_metrics_revisit_2026-06-25.docx §6.")
+
     if args.plot and "ladder_family" in df.columns:
         # Accuracy dual ladder: chain-F (solid) + final-answer F (dashed).
         acc_png = path.with_name(path.stem + "_dual_ladder.png")
