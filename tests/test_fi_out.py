@@ -46,10 +46,12 @@ def test_fi_out_clamps_negative_to_zero():
     assert val == 0.0
 
 
-def test_estimate_a_q_unions_across_prompts():
-    """|A_q| is the count of unique cluster IDs pooled across paraphrases."""
+def test_estimate_a_q_chao_corrects_richness():
+    """P2-4: |A_q| is now Chao-1987-corrected from the pooled cluster frequencies,
+    not the raw union count. pooled [0,1,1,2,3]: observed=4, f1=3 (ids 0,2,3),
+    f2=1 (id 1) -> n_chao = 4 + 3*2/(2*(1+1)) = 5.5 -> round 6."""
     assignments = {0: [0, 1], 1: [1, 2], 2: [3]}
-    assert estimate_a_q(assignments) == 4
+    assert estimate_a_q(assignments) == 6
 
 
 def test_fi_out_returns_one_per_prompt_dict():

@@ -80,8 +80,27 @@ def fi_out_summary(per_prompt: Mapping[int, float]) -> tuple[float, float]:
 
 
 def estimate_a_q(cluster_assignments: Mapping[int, Sequence[int]]) -> int:
-    """|A_q| via union of unique cluster IDs across all paraphrases."""
-    all_ids: set[int] = set()
+    """|A_q| via the Chao-1987 bias-corrected richness estimator (§7.8 P3, P2-4).
+
+    `observed` = distinct cluster IDs across all paraphrases. Chao-1987 corrects
+    for unseen clusters from the singleton/doubleton frequencies (clusters seen
+    exactly once / twice across the POOLED assignments):
+
+        n_chao = observed + f1 * (f1 - 1) / (2 * (f2 + 1))
+
+    Returns max(observed, round(n_chao)), floored at 1. The smoke used the raw
+    observed count (k=2 capped |A_q| at ~4); with this correction FI_out =
+    log2|A_q| - H_sem may shift UPWARD versus that baseline.
+    """
+    from collections import Counter
+
+    counts: Counter = Counter()
     for assign in cluster_assignments.values():
-        all_ids.update(assign)
-    return max(1, len(all_ids))
+        counts.update(assign)
+    observed = len(counts)
+    if observed == 0:
+        return 1
+    f1 = sum(1 for c in counts.values() if c == 1)
+    f2 = sum(1 for c in counts.values() if c == 2)
+    n_chao = observed + (f1 * (f1 - 1)) / (2 * (f2 + 1))
+    return max(observed, int(round(n_chao)), 1)
