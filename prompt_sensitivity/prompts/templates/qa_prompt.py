@@ -145,19 +145,77 @@ def assemble_qa_cot_messages(
     ]
 
 
-_ANSWER_LINE_RE = re.compile(r"(?im)^\s*answer\s*:\s*(.+?)\s*$")
+# The CoT system prompt asks for a line starting exactly with "Answer:", but the
+# local 7-8B instruct models (Qwen2.5 / Mistral / Llama-3.1) routinely dress it
+# up — markdown-bold (`**Answer:**`, `**Answer**:`), heading (`### Answer`), or
+# "Final Answer:". The old `^answer:` regex missed all of these and fell back to
+# the WHOLE reasoning essay, which the asymmetric gold->answer NLI scorer
+# (scoring/nli_with_gold.py) then scored 0 — so final_answer_f_mean read ~0 in
+# cells where chain-F was already high. We therefore (a) tolerate leading
+# markdown / blockquote / bullet glyphs and emphasis around the label, (b) accept
+# "Final Answer", (c) read the value off the following line when the label line
+# is bare, and (d) fall back to the LAST non-empty line (the model's conclusion)
+# rather than the entire essay. See Dataset_Evaluation_v6_Dual_Ladder §2 (the
+# `Answer:` line is the secondary binary score; chain-completion is primary).
+_ANSWER_LABEL_RE = re.compile(
+    r"(?im)^[ \t>#*_\-]*(?:final\s+answer|answer)[ \t*_]*[:\-–—][ \t]*(.*)$"
+)
+
+# "the answer is X" / "answer was X" prose, for responses that skip the label.
+_ANSWER_PROSE_RE = re.compile(
+    r"(?is)\b(?:the\s+)?(?:final\s+)?answer\s+(?:is|was|would\s+be)\b[:\s]*(.+?)[.\n]"
+)
+
+# Markdown emphasis, quotes, and trailing punctuation to peel off an extracted span.
+_ANSWER_STRIP = " \t\r\n*_`\"'.,;:!?()[]"
+
+
+def _clean_answer(span: str) -> str:
+    """Strip surrounding markdown emphasis / quotes / punctuation from a span."""
+    return span.strip().strip(_ANSWER_STRIP).strip()
 
 
 def parse_answer_line(response: str) -> str:
-    """Extract the final `Answer:` line from a CoT response.
+    """Extract the final answer from a CoT response, tolerantly.
 
-    Returns the text after the last `Answer:` marker. Falls back to the whole
-    (stripped) response if no marker is present — so the binary scorer always
-    has something to score.
+    Resolution order:
+      1. The LAST explicit answer-label line (`Answer:`, `**Answer:**`,
+         `Final Answer:`, `### Answer:`, ...). If the label line is bare
+         (value on the next line), take the next non-empty line.
+      2. A "the answer is X" prose statement (last occurrence).
+      3. The last non-empty line of the response.
+
+    Surrounding markdown / quotes / trailing punctuation are stripped. Never
+    returns the whole multi-line essay — that systematically scored 0 under the
+    gold->answer NLI scorer (see the module-level note).
     """
     if not response:
         return ""
-    matches = _ANSWER_LINE_RE.findall(response)
-    if matches:
-        return matches[-1].strip()
-    return response.strip()
+    text = response.strip()
+
+    # 1. explicit answer-label line(s) — take the last.
+    label_matches = _ANSWER_LABEL_RE.findall(text)
+    if label_matches:
+        cand = _clean_answer(label_matches[-1])
+        if cand:
+            return cand
+        # Label present but value sits on a following line: take next non-empty.
+        lines = text.splitlines()
+        for i, line in enumerate(lines):
+            if _ANSWER_LABEL_RE.match(line):
+                for nxt in lines[i + 1:]:
+                    if nxt.strip():
+                        return _clean_answer(nxt)
+
+    # 2. "the answer is X" prose — last occurrence.
+    prose = list(_ANSWER_PROSE_RE.finditer(text + "\n"))
+    if prose:
+        cand = _clean_answer(prose[-1].group(1))
+        if cand:
+            return cand
+
+    # 3. fallback: last non-empty line (NOT the whole essay).
+    for line in reversed(text.splitlines()):
+        if line.strip():
+            return _clean_answer(line)
+    return _clean_answer(text)

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import pytest
+
 from prompt_sensitivity.data.schemas import HotpotParagraph
 from prompt_sensitivity.prompts import (
     QA_SYSTEM_PROMPT,
     QA_USER_TEMPLATE,
     assemble_qa_messages,
+    parse_answer_line,
 )
 
 
@@ -56,3 +59,74 @@ def test_template_constants_exported():
     assert QA_SYSTEM_PROMPT.strip()
     assert "{question}" in QA_USER_TEMPLATE
     assert "{context_block}" in QA_USER_TEMPLATE
+
+
+# --------------------------------------------------------------------------- #
+# parse_answer_line — final-answer extraction from CoT responses.             #
+#                                                                             #
+# Regression for the MuSiQue cluster pilot: the local 7-8B models recovered   #
+# the reasoning chain (chain-F high) but final_answer_f_mean read ~0 because   #
+# they wrote the answer label in formats the old `^answer:` regex missed, so   #
+# the parser handed the whole essay to the gold->answer NLI scorer (F=0).     #
+# Each `_CHAIN` below is a realistic 2-step CoT; only the final line varies.   #
+# --------------------------------------------------------------------------- #
+
+_CHAIN = (
+    "Step 1: The nation that set up the Commission of Truth and Friendship is "
+    "Timor-Leste.\n"
+    "Step 2: Lion Air serves the airport in Dili, the capital of Timor-Leste.\n"
+)
+_GOLD = "Jose Ramos-Horta"
+
+
+@pytest.mark.parametrize(
+    "final_line",
+    [
+        "Answer: Jose Ramos-Horta",          # canonical (the old parser handled this)
+        "**Answer:** Jose Ramos-Horta",      # markdown-bold label + value
+        "**Answer**: Jose Ramos-Horta",      # bold label, plain colon
+        "Final Answer: Jose Ramos-Horta",    # "Final Answer:"
+        "FINAL ANSWER: Jose Ramos-Horta",    # upper-case
+        "Answer - Jose Ramos-Horta",         # dash separator
+        "> Answer: Jose Ramos-Horta",        # blockquote glyph
+        "Answer: **Jose Ramos-Horta**",      # value wrapped in emphasis
+        'Answer: "Jose Ramos-Horta"',        # value quoted
+    ],
+)
+def test_parse_answer_line_tolerates_label_formats(final_line):
+    """The answer span is recovered regardless of label dressing / emphasis."""
+    assert parse_answer_line(_CHAIN + final_line) == _GOLD
+
+
+def test_parse_answer_line_value_on_next_line():
+    """Bare label line -> value is read off the following non-empty line."""
+    assert parse_answer_line(_CHAIN + "Answer:\nJose Ramos-Horta") == _GOLD
+    assert parse_answer_line(_CHAIN + "### Answer\nJose Ramos-Horta") == _GOLD
+
+
+def test_parse_answer_line_prose_statement():
+    """No label, but a 'the answer is X' conclusion."""
+    assert parse_answer_line(_CHAIN + "The answer is Jose Ramos-Horta.") == _GOLD
+    assert parse_answer_line(_CHAIN + "So the final answer would be Denver.") == "Denver"
+
+
+def test_parse_answer_line_last_marker_wins():
+    """Multiple label lines -> the last one is the final answer."""
+    resp = "Answer: Paris\nOn reflection that is wrong.\nAnswer: London"
+    assert parse_answer_line(resp) == "London"
+
+
+def test_parse_answer_line_fallback_is_last_line_not_whole_essay():
+    """No marker at all -> last non-empty line, never the multi-line essay.
+
+    The whole essay systematically scored 0 under the gold->answer NLI scorer;
+    the last line at least carries the model's conclusion.
+    """
+    parsed = parse_answer_line(_CHAIN + "Trey Parker was born in Denver.")
+    assert parsed == "Trey Parker was born in Denver"
+    assert "Step 1" not in parsed  # the reasoning prefix must be dropped
+
+
+def test_parse_answer_line_empty_input():
+    assert parse_answer_line("") == ""
+    assert parse_answer_line("   \n  \n") == ""

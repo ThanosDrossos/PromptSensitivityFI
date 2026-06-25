@@ -72,9 +72,15 @@ def test_parse_answer_line_takes_last_marker():
     assert parse_answer_line(resp) == "final"
 
 
-def test_parse_answer_line_falls_back_to_whole_response():
-    resp = "Just a bare answer with no marker"
-    assert parse_answer_line(resp) == "Just a bare answer with no marker"
+def test_parse_answer_line_falls_back_to_last_line():
+    # Single bare line: the fallback returns it verbatim.
+    assert parse_answer_line("Just a bare answer with no marker") == (
+        "Just a bare answer with no marker"
+    )
+    # Multi-line essay with no marker: fallback is the LAST non-empty line,
+    # NOT the whole essay (which scored 0 under the gold->answer NLI scorer).
+    resp = "Step 1: X is A.\nStep 2: A's capital is B.\nProbably B then"
+    assert parse_answer_line(resp) == "Probably B then"
 
 
 def test_parse_answer_line_empty():
