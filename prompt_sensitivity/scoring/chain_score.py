@@ -113,16 +113,39 @@ def _hop_recovered(
     return chosen.passes_entail and chosen.passes_contradict
 
 
+def _scaffold_recovered(
+    scaffold_text: str | None,
+    facts: Sequence[str],
+    *,
+    config: Config,
+) -> list[bool]:
+    """Per-hop: is the gold fact already supplied by the reasoning scaffold?
+
+    Reasoning-ladder level L feeds hops 0..L-1 as scaffold and asks only for the
+    continuation; a terse model then omits the already-given hops and the scorer
+    mechanically under-counts them (e.g. Mistral L3 chain-F dropped 0.986->0.681
+    on the smoke; Smoke_Run §5.3). We OR-credit any hop the SCAFFOLD itself
+    entails. Computed ONCE per cell (the scaffold is shared across the cell's
+    responses), via the SAME bidirectional NLI logic as the response check.
+    """
+    if not scaffold_text or not scaffold_text.strip():
+        return [False] * len(facts)
+    return [_hop_recovered(scaffold_text, f, config=config) for f in facts]
+
+
 def chain_completion_score(
     decomposition: Sequence[DecompositionHop],
     model_response: str,
     *,
     config: Config | None = None,
+    scaffold_text: str | None = None,
 ) -> float:
     """Fraction of gold reasoning hops recovered in `model_response`, in [0, 1].
 
-    Raises ValueError on an empty decomposition — the caller MUST route
-    HotpotQA / 2Wiki (no decomposition) to the binary `f_score` path instead.
+    `scaffold_text` (reasoning ladder): hops the scaffold already supplies are
+    OR-credited — see `_scaffold_recovered`. Raises ValueError on an empty
+    decomposition — the caller MUST route HotpotQA / 2Wiki (no decomposition)
+    to the binary `f_score` path instead.
     """
     if not decomposition:
         raise ValueError(
@@ -132,7 +155,11 @@ def chain_completion_score(
     if config is None:
         config = load_config()
     facts = build_fact_statements(decomposition)
-    recovered = [_hop_recovered(model_response, f, config=config) for f in facts]
+    scaffold_recovered = _scaffold_recovered(scaffold_text, facts, config=config)
+    recovered = [
+        _hop_recovered(model_response, f, config=config) or scaffold_recovered[i]
+        for i, f in enumerate(facts)
+    ]
     return chain_fraction(recovered)
 
 
@@ -141,6 +168,7 @@ def chain_completion_score_batch(
     responses: Sequence[str],
     *,
     config: Config | None = None,
+    scaffold_text: str | None = None,
 ) -> list[float]:
     """Chain-completion fraction for many responses (one cell's paraphrases).
 
@@ -162,6 +190,9 @@ def chain_completion_score_batch(
 
     facts = build_fact_statements(decomposition)
     n, h = len(responses), len(facts)
+
+    # Hops the reasoning scaffold already supplies — OR-credited below (P0-1).
+    scaffold_recovered = _scaffold_recovered(scaffold_text, facts, config=config)
 
     # Direction A: premise = response_r, hypotheses = all facts.
     #   entail_A[r][hop] = P(response_r entails fact_hop)
@@ -195,6 +226,6 @@ def chain_completion_score_batch(
                 passed = ea >= entail_thr and ca < contra_thr
             else:
                 passed = eb >= entail_thr and cb < contra_thr
-            recovered.append(passed)
+            recovered.append(passed or scaffold_recovered[hop])
         scores.append(chain_fraction(recovered))
     return scores

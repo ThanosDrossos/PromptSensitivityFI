@@ -662,8 +662,15 @@ def _run_cell(
             max_tokens=gen_max,
         ))
 
+    # Reasoning ladder: OR-credit hops the scaffold already supplies (P0-1).
+    scaffold_text = (
+        render_reasoning_scaffold(q, row.hops_provided or 0)
+        if row.ladder_family == "reasoning" else None
+    )
     if use_cot:
-        f_scores = chain_completion_score_batch(q.question_decomposition, f_responses, config=config)
+        f_scores = chain_completion_score_batch(
+            q.question_decomposition, f_responses, config=config, scaffold_text=scaffold_text,
+        )
         final_answers = [parse_answer_line(r) for r in f_responses]
         final_binary = f_score_batch(q.answer, final_answers, config=config)
         final_answer_f_mean = float(np.mean(final_binary)) if final_binary else None
