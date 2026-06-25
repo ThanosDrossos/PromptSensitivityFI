@@ -1,6 +1,6 @@
 # PromptSensitivityFI — versioned config. See Research_Design_v3 §7 / §9.
 # Bump `config_version` whenever a value changes; experiments are keyed on it.
-config_version: 3
+config_version: 4
 random_seed: 42
 
 # §2.4 — sample sizes per dataset.
@@ -47,12 +47,11 @@ ladders:
 # §3.1 — paraphrase universe per question.
 paraphrases:
   n_per_question: 30
-  # Sprint 6 (local cluster): the generator + judge run on a locally-served
-  # model, NOT the gateway. We reuse the qwen_2_5_7b EVAL model as the generator
-  # so only 3 models are deployed total. Trade-off: the generator overlaps one
-  # eval model (cross-generator independence, §7.6.1 R2/R3) — documented as a
-  # known confound; swap to a 4th model for strict independence later.
-  generator_model: qwen_2_5_7b      # key into `models` below (provider: local)
+  # P3-3: generator + judge run on Phi-4-14B (microsoft/phi-4), a DENSE,
+  # MIT-licensed model trained on a curated synthetic-textbook distribution
+  # distinct from Llama/Mistral/Qwen. This restores cross-generator independence
+  # (§7.6.1 R3): the smoke used qwen_2_5_7b, which is also an eval model.
+  generator_model: phi_4_14b        # key into `models` below (provider: local)
   generator_temperature: 0.8
   templates: [neutral, journalist, casual_user, domain_expert]
   raw_candidates_per_question: 40
@@ -70,7 +69,7 @@ paraphrases:
     bidirectional_threshold: 0.9
     fallback_threshold: 0.85
   constraint_filter:
-    judge_model: qwen_2_5_7b        # local generator doubles as the gold-based judge
+    judge_model: phi_4_14b          # Phi-4 generator doubles as the gold-based judge (P3-3)
     jaccard_threshold: 0.9
     # Was 256, but the smoke run caught the judge returning truncated JSON
     # (e.g. `{"answers": ["private equity", "private`) which fell back to []
@@ -123,12 +122,20 @@ models:
     echo_completions: true
     has_hidden: true
   qwen_2_5_7b:
-    # Also the paraphrase generator + gold-based judge (paraphrases.* above).
     provider: local
     model_id: "Qwen/Qwen2.5-7B-Instruct"
     chat_logprobs: true
     echo_completions: true
     has_hidden: true
+  phi_4_14b:
+    # P3-3: paraphrase generator + gold-based judge ONLY (not an eval model), so
+    # it needs none of logprobs / echo / hidden — flags off so local_check gates
+    # by capability and won't fail-gate it. Dense 14B, MIT license (no HF token).
+    provider: local
+    model_id: "microsoft/phi-4"
+    chat_logprobs: false
+    echo_completions: false
+    has_hidden: false
   gpt_4o:
     # LEGACY gateway entry — kept so non-cluster gateway runs still resolve, but
     # UNUSED on the cluster (no LiteLLM endpoint there). Not a `provider: local`
