@@ -330,7 +330,13 @@ class LocalHFClient(BaseLLMClient):
             with torch.no_grad():
                 out = model(**enc, output_hidden_states=True)
             chunks.append(_masked_mean_pool(out.hidden_states[-1], enc["attention_mask"]))
-        return np.concatenate(chunks, axis=0).astype(np.float32)
+        pooled = np.concatenate(chunks, axis=0).astype(np.float32)
+        # P1-1: L2-normalize so ESS_in / rho_u measure prompt-space DISPERSION,
+        # not raw hidden-state norm (which differs 5-10x across architectures —
+        # Llama median 22 vs Mistral 209 on the smoke, Smoke_Run §5.5). Unit
+        # vectors put every model on the same scale.
+        norms = np.linalg.norm(pooled, axis=-1, keepdims=True)
+        return (pooled / np.clip(norms, 1e-12, None)).astype(np.float32)
 
 
 def _eos_id_set(tokenizer) -> set[int]:  # type: ignore[no-untyped-def]
