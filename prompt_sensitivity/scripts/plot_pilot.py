@@ -713,6 +713,47 @@ def _write_report(df: pd.DataFrame, plots_dir: Path) -> None:
     logger.info("wrote {}", out_path)
 
 
+def _plot_hazen_steps(df: pd.DataFrame, out_png: Path) -> None:
+    """09 (P2-2): per-model fraction of cells fitting the Hazen plateau pattern
+    (§7.9 C2), with 95% Wilson binomial CI. Needs the FI_in(k) curve + CI columns
+    (P0-3/P1-3); skips cleanly on pre-P0-3 parquets."""
+    from ..metrics.hazen_test import fits_hazen_row
+
+    needed = {"fi_in_curve_vals", "fi_in_ci_lower", "fi_in_ci_upper", "model_key"}
+    if not needed <= set(df.columns):
+        logger.info("hazen plot skipped: missing FI_in curve / CI columns")
+        return
+
+    models, fracs, los, his = [], [], [], []
+    for model, sub in df.groupby("model_key"):
+        flags = [f for f in (fits_hazen_row(r) for _, r in sub.iterrows()) if f is not None]
+        if not flags:
+            continue
+        n, k = len(flags), int(sum(flags))
+        p = k / n
+        z = 1.96  # Wilson 95% interval
+        denom = 1 + z * z / n
+        center = (p + z * z / (2 * n)) / denom
+        half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom
+        models.append(str(model)); fracs.append(p)
+        los.append(max(0.0, center - half)); his.append(min(1.0, center + half))
+
+    if not models:
+        logger.info("hazen plot skipped: no cells with curve+CI")
+        return
+    fig, ax = plt.subplots(figsize=(7, 4))
+    x = list(range(len(models)))
+    yerr = [[f - l for f, l in zip(fracs, los)], [h - f for f, h in zip(fracs, his)]]
+    ax.bar(x, fracs, color="#4C72B0")
+    ax.errorbar(x, fracs, yerr=yerr, fmt="none", ecolor="black", capsize=4)
+    ax.set_xticks(x); ax.set_xticklabels(models, rotation=20, ha="right")
+    ax.set_ylim(0, 1.05)
+    ax.set_ylabel("fraction of cells fitting Hazen pattern")
+    ax.set_title("Hazen stepped-behavior (§7.9 C2): plateau fraction by model (95% Wilson CI)")
+    fig.tight_layout(); fig.savefig(out_png, dpi=120); plt.close(fig)
+    logger.info("wrote {}", out_png)
+
+
 # --------------------------------------------------------------------------- #
 # Main                                                                        #
 # --------------------------------------------------------------------------- #
@@ -793,6 +834,7 @@ def main() -> int:
         ylabel="AUFI_in (bits)",
         out_path=plots_dir / "07_model_comparison_aufi_in.png",
     )
+    _plot_hazen_steps(df, plots_dir / "09_hazen_steps.png")
     _write_report(df, plots_dir)
 
     # Console summary
