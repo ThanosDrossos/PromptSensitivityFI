@@ -157,9 +157,27 @@ def f_score_batch(
     answers: Iterable[str],
     *,
     config: Config | None = None,
+    permissive: bool = False,
 ) -> list[int]:
-    """Batched 0/1 scoring for one cell's paraphrases."""
-    return [r.f for r in score_batch_nli_with_gold(gold, answers, config=config)]
+    """Batched 0/1 scoring for one cell's paraphrases.
+
+    `permissive=True` (P0-2b) re-thresholds the SAME NLI pass at
+    `config.scoring.entail_threshold_permissive` (default 0.5) instead of the
+    strict `entail_threshold`, for the secondary final-answer score where the
+    asymmetric gold->answer NLI under-fires on short correct answers. The
+    contradiction gate is unchanged. The default (strict) path is unchanged.
+    """
+    if config is None:
+        config = load_config()
+    results = score_batch_nli_with_gold(gold, answers, config=config)
+    if not permissive:
+        return [r.f for r in results]
+    thr = config.scoring.entail_threshold_permissive
+    contra_thr = config.scoring.contradict_threshold
+    return [
+        1 if (r.entail_prob >= thr and r.contradict_prob < contra_thr) else 0
+        for r in results
+    ]
 
 
 # --------------------------------------------------------------------------- #

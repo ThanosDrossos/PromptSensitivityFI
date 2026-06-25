@@ -667,17 +667,23 @@ def _run_cell(
         render_reasoning_scaffold(q, row.hops_provided or 0)
         if row.ladder_family == "reasoning" else None
     )
+    final_answer_f_mean_permissive = None
     if use_cot:
         f_scores = chain_completion_score_batch(
             q.question_decomposition, f_responses, config=config, scaffold_text=scaffold_text,
         )
         final_answers = [parse_answer_line(r) for r in f_responses]
         final_binary = f_score_batch(q.answer, final_answers, config=config)
+        final_binary_perm = f_score_batch(q.answer, final_answers, config=config, permissive=True)
         final_answer_f_mean = float(np.mean(final_binary)) if final_binary else None
+        final_answer_f_mean_permissive = (
+            float(np.mean(final_binary_perm)) if final_binary_perm else None
+        )
         logger.info(
-            "  chain F: mean={:.3f} values={}  final-answer F mean={:.3f}",
+            "  chain F: mean={:.3f} values={}  final-answer F mean={:.3f} (perm {:.3f})",
             float(np.mean(f_scores)) if f_scores else 0.0,
             [round(s, 2) for s in f_scores[:5]], final_answer_f_mean or 0.0,
+            final_answer_f_mean_permissive or 0.0,
         )
     else:
         f_scores = [float(x) for x in f_score_batch(q.answer, f_responses, config=config)]
@@ -751,6 +757,7 @@ def _run_cell(
     row_dict["ladder_type_raw"] = row.ladder_type
     row_dict["scoring_mode"] = scoring_mode
     row_dict["final_answer_f_mean"] = final_answer_f_mean
+    row_dict["final_answer_f_mean_permissive"] = final_answer_f_mean_permissive
     row_dict["n_hops"] = q.n_hops
     return row_dict
 

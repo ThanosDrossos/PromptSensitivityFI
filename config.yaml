@@ -1,6 +1,6 @@
 # PromptSensitivityFI — versioned config. See Research_Design_v3 §7 / §9.
 # Bump `config_version` whenever a value changes; experiments are keyed on it.
-config_version: 2
+config_version: 3
 random_seed: 42
 
 # §2.4 — sample sizes per dataset.
@@ -146,6 +146,9 @@ scoring:
   entail_threshold: 0.7
   contradict_threshold: 0.5
   exact_match_appendix_only: true
+  # P0-2b: looser bar for the SECONDARY final-answer score only (parallel
+  # permissive column); strict entail_threshold above is unchanged.
+  entail_threshold_permissive: 0.5
   # v6 graded chain-completion (MuSiQue). null => reuse the binary thresholds
   # above. Set explicitly if hop recovery should use a different bar.
   chain_entail_threshold: null

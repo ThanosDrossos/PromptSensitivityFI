@@ -104,6 +104,10 @@ class ScoringConfig(_Frozen):
     entail_threshold: float
     contradict_threshold: float
     exact_match_appendix_only: bool
+    # P0-2b: a looser entailment bar for the SECONDARY final-answer score only.
+    # The strict `entail_threshold` is unchanged; this gives a parallel permissive
+    # column so a too-strict NLI can't masquerade as model failure.
+    entail_threshold_permissive: float = 0.5
     # v6 graded chain-completion. Default None => reuse the binary thresholds
     # above (the chain scorer reads entail_threshold / contradict_threshold).
     chain_entail_threshold: float | None = None
