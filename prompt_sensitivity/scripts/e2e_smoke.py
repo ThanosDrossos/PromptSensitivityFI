@@ -352,6 +352,28 @@ def _sample_response(
     return client.complete(req).text.strip()
 
 
+def _clustering_inputs(
+    responses_per_paraphrase: dict[int, list[str]], cluster_on: str
+) -> dict[int, list[str]]:
+    """T1: the strings fed to the pooled output-clusterer.
+
+    cluster_on == "answer" (default): map each raw sample through
+    `parse_answer_line`, falling back to the raw sample when extraction is empty
+    so no sample is dropped. cluster_on == "response": cluster the raw text.
+    Pure helper so the answer-vs-response wiring is unit-testable.
+    """
+    if cluster_on != "answer":
+        return responses_per_paraphrase
+    out: dict[int, list[str]] = {}
+    for i, samples in responses_per_paraphrase.items():
+        mapped: list[str] = []
+        for s in samples:
+            ext = parse_answer_line(s)
+            mapped.append(ext if ext.strip() else s)
+        out[i] = mapped
+    return out
+
+
 # --------------------------------------------------------------------------- #
 # Main                                                                        #
 # --------------------------------------------------------------------------- #
@@ -378,7 +400,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--families", type=str, default="context",
                         help="comma list: context,reasoning (reasoning is MuSiQue-only)")
     parser.add_argument("--levels", type=str, default="0,4,10")
-    parser.add_argument("--k-samples", type=int, default=3)
+    parser.add_argument("--k-samples", type=int, default=None,
+                        help="H_sem samples per prompt. Default: config.h_sem."
+                             "n_samples_per_prompt (10). An effective k<5 logs a "
+                             "near-zero-resolution WARNING.")
     parser.add_argument("--max-paraphrases", type=int, default=10)
     parser.add_argument("--out", type=str, default="data/e2e_metrics.parquet")
     parser.add_argument("--include-posix", action="store_true")
@@ -400,6 +425,13 @@ def _parse_args() -> argparse.Namespace:
         "--fast", action="store_true",
         help="Skip H_sem clustering / embeddings / POSIX (FI_in + f_mean only). "
              "Removes the biggest CPU cost; ~10x faster per cell.",
+    )
+    parser.add_argument(
+        "--dump-hsem-samples", action=argparse.BooleanOptionalAction, default=True,
+        help="Write a per-sample audit sidecar data/hsem_samples_<out-stem>.parquet "
+             "(raw_text, extracted_answer, cluster_id) so an output-clustering "
+             "collapse is directly inspectable. Default ON; --no-dump-hsem-samples "
+             "to disable.",
     )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -429,12 +461,24 @@ def main() -> int:
 
     families = [f.strip() for f in args.families.split(",") if f.strip()]
     models = [m.strip() for m in args.models.split(",") if m.strip()]
-    ladders = [l.strip() for l in args.ladders.split(",") if l.strip()]
+    ladders = [ld.strip() for ld in args.ladders.split(",") if ld.strip()]
     levels = [int(x) for x in args.levels.split(",") if x.strip()]
     for m in models:
         if m not in config.models:
             logger.error("unknown model_key {!r}; available: {}", m, list(config.models))
             return 1
+
+    # T3: H_sem samples/prompt. Default to config.h_sem.n_samples_per_prompt (10);
+    # --k-samples overrides. Tiny k has near-zero semantic-entropy resolution.
+    k_samples = args.k_samples if args.k_samples is not None else config.h_sem.n_samples_per_prompt
+    if k_samples < 5:
+        logger.warning(
+            "H_sem k={} (<5): per-prompt semantic entropy can only reach ~0 or ~1 bit, so "
+            "H_sem / FI_out / S_tau have almost no resolution. Use k>=10 for the real run.",
+            k_samples,
+        )
+    logger.info("H_sem samples/prompt (k) = {} (cluster_on={}, cluster_criterion={})",
+                k_samples, config.h_sem.cluster_on, config.h_sem.cluster_criterion)
 
     # --- select questions + paraphrases ------------------------------------
     musique_direct = args.musique_direct > 0 or args.musique_strata > 0
@@ -500,12 +544,12 @@ def main() -> int:
     cell_rows_by_q = {q.id: _build_cell_rows(q, families, ladders, levels) for q in questions}
     n_cells = sum(len(cell_rows_by_q[q.id]) for q in questions) * len(models)
     n_calls = sum(
-        len(cell_rows_by_q[q.id]) * len(models) * len(accepted[q.id]) * (1 + args.k_samples)
+        len(cell_rows_by_q[q.id]) * len(models) * len(accepted[q.id]) * (1 + k_samples)
         for q in questions
     )
     logger.info(
         "plan: {} cells, ~{} LLM calls (N_q={}, families={}, ladders={}, levels={}, models={}, k={})",
-        n_cells, n_calls, len(questions), families, ladders, levels, models, args.k_samples,
+        n_cells, n_calls, len(questions), families, ladders, levels, models, k_samples,
     )
     if args.dry_run:
         print(json.dumps({
@@ -540,6 +584,10 @@ def main() -> int:
     # --- RESUME: load any already-computed cells so a crash/restart skips them.
     rows_out: list[dict] = []
     done_keys: set[tuple] = set()
+    # T5 sidecar accumulates only cells computed THIS invocation (resumed cells
+    # are not re-sampled, so their samples aren't re-dumped — it's a best-effort
+    # audit aid, written once at the end).
+    hsem_rows_all: list[dict] = []
     if out_path.exists():
         try:
             prev = pd.read_parquet(out_path)
@@ -565,11 +613,12 @@ def main() -> int:
                     continue
                 t_cell = time.perf_counter()
                 try:
-                    row_dict = _run_cell(
+                    row_dict, hsem_rows = _run_cell(
                         config, q, row, model_key, paraphrases,
-                        k_samples=args.k_samples, answer_max=answer_max, cot_max=cot_max,
+                        k_samples=k_samples, answer_max=answer_max, cot_max=cot_max,
                         include_posix=args.include_posix, fast=args.fast,
                         own_encoder=args.own_encoder,
+                        dump_hsem_samples=args.dump_hsem_samples,
                     )
                 except Exception:  # noqa: BLE001 — isolate cell failures
                     n_failed += 1
@@ -579,6 +628,7 @@ def main() -> int:
                     )
                     continue
                 rows_out.append(row_dict)
+                hsem_rows_all.extend(hsem_rows)
                 done_keys.add(key)
                 n_done += 1
                 # Per-cell timing so the first cell lets us extrapolate walltime.
@@ -597,6 +647,12 @@ def main() -> int:
     if not rows_out:
         logger.error("no cells produced; nothing written")
         return 1
+
+    # T5: per-sample audit sidecar (raw_text / extracted_answer / cluster_id).
+    if args.dump_hsem_samples and hsem_rows_all:
+        sidecar = out_path.parent / f"hsem_samples_{out_path.stem}.parquet"
+        pd.DataFrame(hsem_rows_all).to_parquet(sidecar, index=False)
+        logger.info("H_sem sample sidecar: {} rows -> {}", len(hsem_rows_all), sidecar)
 
     _print_summary(pd.DataFrame(rows_out), out_path)
     return 0 if n_failed == 0 else 2
@@ -628,8 +684,9 @@ def _run_cell(
     include_posix: bool,
     fast: bool = False,
     own_encoder: bool = False,
-) -> dict:
-    """Run one (question, ladder-row, model) cell -> a flat result row dict.
+    dump_hsem_samples: bool = False,
+) -> tuple[dict, list[dict]]:
+    """Run one (question, ladder-row, model) cell -> (result row dict, hsem sidecar rows).
 
     `fast=True` skips the H_sem sampling + pooled NLI clustering + embeddings +
     POSIX. That removes the quadratic-in-(N*k) DeBERTa clustering — by far the
@@ -692,6 +749,7 @@ def _run_cell(
 
     n = len(paraphrases)
     encoder_label = "external_mpnet"
+    hsem_rows: list[dict] = []
     if fast:
         # Skip the quadratic H_sem path entirely.
         cluster_assignments = {}
@@ -713,7 +771,17 @@ def _run_cell(
                 ))
             responses_per_paraphrase[i] = samples
 
-        cluster_assignments = cluster_responses_pooled(responses_per_paraphrase, config=config)
+        # T1: cluster the EXTRACTED ANSWER of each sample (config.h_sem.cluster_on
+        # == "answer"), not the full generation, so style/verbosity don't over-merge
+        # (tidy Qwen outputs all entailed each other -> single cluster -> H_sem=0).
+        # Always compute the extraction (also feeds the T5 sidecar); fall back to
+        # the raw sample when extraction is empty so no sample is dropped.
+        extracted_per_paraphrase = {
+            i: [parse_answer_line(s) for s in samples]
+            for i, samples in responses_per_paraphrase.items()
+        }
+        clustering_inputs = _clustering_inputs(responses_per_paraphrase, config.h_sem.cluster_on)
+        cluster_assignments = cluster_responses_pooled(clustering_inputs, config=config)
 
         # Own-encoder path (Sprint 6): use the model's OWN last-layer hidden
         # states for ESS_in / rho_u instead of the external mpnet proxy. Only
@@ -736,6 +804,28 @@ def _run_cell(
             posix_log_p, posix_lengths = _posix_matrix(
                 client, model_entry, prompt_messages, f_responses, q, row
             )
+
+        # T5: per-sample audit sidecar rows (raw_text / extracted_answer / cluster_id)
+        # for this cell — lets "consistent model" vs "clustering collapsed" be checked
+        # directly. cluster_id is from the pooled assignment aligned with the samples.
+        if dump_hsem_samples:
+            lt = row.ladder_type if row.ladder_family == "context" else "random"
+            for i, samples in responses_per_paraphrase.items():
+                assigns = cluster_assignments.get(i, [])
+                exts = extracted_per_paraphrase[i]
+                for s_idx, raw in enumerate(samples):
+                    hsem_rows.append({
+                        "question_id": q.id,
+                        "ladder_family": row.ladder_family,
+                        "ladder_type": lt,
+                        "level": row.level,
+                        "model_key": model_key,
+                        "paraphrase_idx": i,
+                        "sample_idx": s_idx,
+                        "raw_text": raw[:2000],
+                        "extracted_answer": exts[s_idx],
+                        "cluster_id": assigns[s_idx] if s_idx < len(assigns) else None,
+                    })
 
     tup = build_metric_tuple(
         question_id=q.id,
@@ -760,7 +850,7 @@ def _run_cell(
     row_dict["final_answer_f_mean"] = final_answer_f_mean
     row_dict["final_answer_f_mean_permissive"] = final_answer_f_mean_permissive
     row_dict["n_hops"] = q.n_hops
-    return row_dict
+    return row_dict, hsem_rows
 
 
 def _posix_matrix(client, model_entry, prompt_messages, f_responses, q, row):
@@ -802,7 +892,7 @@ def _print_summary(out_df: pd.DataFrame, out_path: Path) -> None:
     print("=" * 100)
     cols = [
         "question_id", "dataset", "ladder_family", "ladder_type_raw", "level", "model_key",
-        "f_mean", "final_answer_f_mean", "aufi_in", "spread", "h_sem_mean",
+        "f_mean", "final_answer_f_mean", "aufi_in", "spread", "h_sem_mean", "a_q",
         "n_paraphrases",
     ]
     cols = [c for c in cols if c in out_df.columns]
@@ -819,6 +909,25 @@ def _print_summary(out_df: pd.DataFrame, out_path: Path) -> None:
     if not graded_present:
         print("  WARNING: all f_mean are 0 or 1 — the step-function bug is NOT fixed for this run.")
         print("  (Expected for HotpotQA binary cells; MuSiQue chain cells should be graded.)")
+
+    # Output-space degeneracy: a_q == 1 means a single pooled cluster, which floors
+    # H_sem / FI_out / variation_ratio. Mirrors the graded-F check above.
+    print()
+    print("OUTPUT-CLUSTER DEGENERACY (fraction of cells with a_q==1, per model):")
+    if "a_q" in out_df.columns and "model_key" in out_df.columns:
+        for mk, sub in out_df.groupby("model_key"):
+            aq = sub["a_q"].dropna()
+            if aq.empty:
+                print(f"  {mk}: (no a_q recorded)")
+                continue
+            frac = float((aq == 1).mean())
+            print(f"  {mk}: {frac:.0%} ({int((aq == 1).sum())}/{len(aq)} cells)")
+            if frac > 0.5:
+                print(f"  WARNING: {mk} has a_q==1 in {frac:.0%} of cells — output-space "
+                      "metrics floored. Raise k (>=10), check cluster_criterion / cluster_on, "
+                      "or audit with --dump-hsem-samples.")
+    else:
+        print("  (a_q column absent — older parquet)")
 
     bad = []
     for _, r in out_df.iterrows():

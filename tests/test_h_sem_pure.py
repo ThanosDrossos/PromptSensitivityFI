@@ -69,7 +69,7 @@ def test_cluster_responses_pooled_returns_per_prompt_with_shared_ids(monkeypatch
 
     captured: list[list[str]] = []
 
-    def fake_cluster_responses(responses, *, config=None, threshold=None):
+    def fake_cluster_responses(responses, *, config=None, threshold=None, criterion=None):
         captured.append(list(responses))
         # Deterministic fake: first char of each response is its cluster id.
         # All responses starting with 'a' -> cluster 0, 'b' -> 1, etc.

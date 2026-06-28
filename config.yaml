@@ -168,10 +168,12 @@ generation:
 
 # §3 — H_sem clustering (Farquhar 2024 Nature).
 h_sem:
-  n_samples_per_prompt: 10
+  n_samples_per_prompt: 10        # do NOT let the smoke override below 5 silently
   sampling_temperature: 1.0
   cluster_nli_model: "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
-  cluster_threshold: 0.5
+  cluster_threshold: 0.5          # used only when cluster_criterion == "prob"
+  cluster_criterion: "label"      # 2026-06-28: argmax NLI==entailment both ways (strict)
+  cluster_on: "answer"            # 2026-06-28: cluster parse_answer_line(sample), not full text
 
 # §7.6.3 — bootstrap CIs.
 bootstrap:

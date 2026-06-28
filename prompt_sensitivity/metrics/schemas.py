@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 
 LadderType = Literal["random", "gold_first", "distractor_first"]
@@ -81,6 +81,10 @@ class MetricTuple(BaseModel):
     rho_u: float | None = None          # Cox 2025 U_e / U_t
     h_sem_mean: float | None = None
     h_sem_var: float | None = None
+    # |A_q| — distinct pooled output clusters across paraphrases (Chao-corrected,
+    # fi_out.estimate_a_q). Surfaced so a clustering collapse (a_q == 1, which
+    # floors H_sem/FI_out/variation_ratio) is auditable and can't hide as a zero.
+    a_q: int | None = None
 
     # Diagnostics for the audit trail.
     n_paraphrases: int = 0

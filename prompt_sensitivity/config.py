@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
@@ -128,6 +128,14 @@ class HSemConfig(_Frozen):
     sampling_temperature: float
     cluster_nli_model: str
     cluster_threshold: float
+    # Output-space clustering collapse fix (2026-06-28). cluster_criterion: how
+    # two samples merge — "label" (argmax NLI == entailment both ways; strict,
+    # default) vs "prob" (entail prob >= cluster_threshold both ways; legacy,
+    # lenient). cluster_on: WHAT to cluster — "answer" (parse_answer_line of each
+    # sample; default, avoids style/verbosity over-merging) vs "response" (the
+    # full generation). Defaults so older configs without these keys still load.
+    cluster_criterion: Literal["prob", "label"] = "label"
+    cluster_on: Literal["answer", "response"] = "answer"
 
 
 class BootstrapConfig(_Frozen):

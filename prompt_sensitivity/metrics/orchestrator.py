@@ -179,6 +179,7 @@ def build_metric_tuple(
         rho_u=rho_val,
         h_sem_mean=h_mean,
         h_sem_var=h_var,
+        a_q=a_q,
         n_paraphrases=n_paraphrases,
         n_samples_per_prompt=n_samples,
         encoder_label=encoder_label,
