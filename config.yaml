@@ -53,7 +53,10 @@ paraphrases:
   # (§7.6.1 R3): the smoke used qwen_2_5_7b, which is also an eval model.
   generator_model: phi_4_14b        # key into `models` below (provider: local)
   generator_temperature: 0.8
-  templates: [neutral, journalist, casual_user, domain_expert]
+  # 2026-06-29: 8 personas (was 4) to widen paraphrase surface variety without
+  # answer-set bias (NLI + gold-constraint filters preserve semantics). Trim this
+  # list to use fewer; eval cost is unaffected (capped by max_paraphrases).
+  templates: [neutral, journalist, casual_user, domain_expert, student, terse_keyword, formal_academic, second_language]
   raw_candidates_per_question: 40
   samples_per_template: 15          # per-iteration batch size; 4 templates × 15 = 60 candidates per iteration.
                                     # Note: total raw is capped by max_regeneration_attempts below.

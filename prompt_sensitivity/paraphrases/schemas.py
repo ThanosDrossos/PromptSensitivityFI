@@ -7,7 +7,10 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-RoleName = Literal["neutral", "journalist", "casual_user", "domain_expert"]
+RoleName = Literal[
+    "neutral", "journalist", "casual_user", "domain_expert",
+    "student", "terse_keyword", "formal_academic", "second_language",
+]
 RejectionReason = Literal[
     "nli_low",
     "nli_one_direction",

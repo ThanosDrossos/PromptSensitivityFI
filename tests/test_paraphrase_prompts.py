@@ -11,8 +11,11 @@ from prompt_sensitivity.paraphrases.prompts import (
 )
 
 
-def test_all_four_roles_present():
-    assert set(ROLE_NAMES) == {"neutral", "journalist", "casual_user", "domain_expert"}
+def test_role_set_is_the_expected_eight():
+    assert set(ROLE_NAMES) == {
+        "neutral", "journalist", "casual_user", "domain_expert",
+        "student", "terse_keyword", "formal_academic", "second_language",
+    }
 
 
 def test_build_returns_two_messages_with_system_and_user():
@@ -28,8 +31,8 @@ def test_persona_text_differs_across_roles():
     contents = {
         role: build_paraphrase_messages("Q.", role)[1].content for role in ROLE_NAMES
     }
-    # All four must be pairwise different.
-    assert len(set(contents.values())) == 4
+    # All personas must be pairwise different.
+    assert len(set(contents.values())) == len(ROLE_NAMES)
 
 
 def test_unknown_role_raises():

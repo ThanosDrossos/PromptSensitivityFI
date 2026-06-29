@@ -2,9 +2,10 @@
 
 PromptSET (arXiv:2502.06065) generates paraphrases by asking the model to
 rewrite a query in a target *persona's* voice while preserving the answer set.
-The four roles below are the design-doc-pinned set; their wording is mine but
-the structure (persona + invariance constraint + single-line output) follows
-Razavi §3.1.
+The role set below (4 design-doc-pinned + 4 added 2026-06-29 to widen surface
+variety) all follow the same structure (persona + invariance constraint +
+single-line output) per Razavi §3.1. Which roles a run actually uses is selected
+by `config.paraphrases.templates`, so the set is trivially adjustable.
 
 The system prompt is identical across roles; only the persona description and
 a stylistic hint differ. Output is always one line, no preamble, no
@@ -20,7 +21,17 @@ from ..models.schemas import ChatMessage
 from .schemas import RoleName
 
 
-ROLE_NAMES: Sequence[RoleName] = ("neutral", "journalist", "casual_user", "domain_expert")
+ROLE_NAMES: Sequence[RoleName] = (
+    "neutral", "journalist", "casual_user", "domain_expert",
+    # 2026-06-29: four additional registers to widen surface-form variety. They
+    # span the same principled axis (persona-conditioned rewrite preserving the
+    # answer set); the NLI + gold-constraint filters still guarantee semantic
+    # equivalence, so they add diversity WITHOUT answer-set bias. More personas =>
+    # more distinct accepted paraphrases / fewer dropped questions, at the same
+    # EVAL cost (the eval is capped by max_paraphrases, not by persona count;
+    # only the one-off paraphrase-prep job does more generation).
+    "student", "terse_keyword", "formal_academic", "second_language",
+)
 
 
 _PERSONA: dict[RoleName, str] = {
@@ -43,6 +54,28 @@ _PERSONA: dict[RoleName, str] = {
         "Rewrite the question as a domain expert would phrase it among "
         "colleagues. Precise terminology, slightly higher register, can "
         "assume some shared background but must remain self-contained."
+    ),
+    "student": (
+        "Rewrite the question as an inquisitive student studying the topic "
+        "would ask it: plain and direct, possibly opening with 'Can you tell "
+        "me' or 'I want to know'. Keep every entity and constraint that fixes "
+        "the answer."
+    ),
+    "terse_keyword": (
+        "Rewrite the question as a terse keyword / search-style query: "
+        "telegraphic, drop articles and filler words, but KEEP every named "
+        "entity, relation, and constraint that determines the answer. It need "
+        "not be a grammatical sentence."
+    ),
+    "formal_academic": (
+        "Rewrite the question in a formal academic register, as in a scholarly "
+        "reference work: complete sentences, precise wording, no contractions "
+        "or colloquialisms."
+    ),
+    "second_language": (
+        "Rewrite the question as a careful non-native English speaker would: "
+        "simple, grammatical sentences and common vocabulary, phrasing that may "
+        "be slightly literal, with the meaning fully preserved."
     ),
 }
 
