@@ -73,6 +73,22 @@ def test_label_criterion_is_categorical_not_a_05_cutoff(monkeypatch):
 # --------------------------------------------------------------------------- #
 
 
+def test_clustering_dedups_identical_strings_before_nli(monkeypatch):
+    """Perf: exact-duplicate responses are collapsed before the O(u^2) NLI pass,
+    and still land in the same cluster."""
+    cfg = load_config()
+    seen = {}
+
+    def fake(premises, hypotheses, *, model_name=None):
+        seen["n_premises"] = len(premises)   # how many NLI inputs were built
+        return [_CONTRA.copy() for _ in premises], 0   # A vs B -> distinct
+
+    monkeypatch.setattr(_H, "_nli_prob_vectors", fake)
+    a = _H.cluster_responses(["A", "A", "A", "B"], config=cfg, criterion="label")
+    assert a[0] == a[1] == a[2] and a[3] != a[0]   # the three A's share a cluster
+    assert seen["n_premises"] == 2                  # 1 unique pair x 2 directions (not 12)
+
+
 def test_prob_criterion_reproduces_threshold(monkeypatch):
     cfg = load_config()
     # entail 0.6 >= 0.5 both ways -> merge -> 1 cluster.

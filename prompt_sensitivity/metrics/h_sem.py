@@ -108,18 +108,30 @@ def cluster_responses(
     if n == 1:
         return [0]
 
-    # Build all (i, j) pairs with i < j; we evaluate both directions in one batch.
+    # Perf: collapse exact-duplicate strings before the O(u^2) NLI pass. NLI(x, x)
+    # is always entailment, so identical responses share a cluster trivially —
+    # cluster only the UNIQUE strings (a large saving when answers repeat, e.g. a
+    # consistent model) and map every response back to its representative. This
+    # does not change the result, only the number of DeBERTa calls.
+    uniq_index: dict[str, int] = {}
+    items: list[str] = []
+    for r in responses:
+        if r not in uniq_index:
+            uniq_index[r] = len(items)
+            items.append(r)
+    u = len(items)
+    if u == 1:
+        return [0] * n
+
+    # Build all (i, j) pairs with i < j over the UNIQUE strings; both directions
+    # in one batch.
     forward_pairs: list[tuple[int, int]] = []
-    for i in range(n):
-        for j in range(i + 1, n):
+    for i in range(u):
+        for j in range(i + 1, u):
             forward_pairs.append((i, j))
 
-    if not forward_pairs:
-        return [0]
-
-    # Premises for fwd: responses[i]; hypotheses: responses[j]. bwd is the swap.
-    premises = [responses[i] for i, _ in forward_pairs] + [responses[j] for _, j in forward_pairs]
-    hypotheses = [responses[j] for _, j in forward_pairs] + [responses[i] for i, _ in forward_pairs]
+    premises = [items[i] for i, _ in forward_pairs] + [items[j] for _, j in forward_pairs]
+    hypotheses = [items[j] for _, j in forward_pairs] + [items[i] for i, _ in forward_pairs]
 
     # Single heavy/mockable seam: full 3-class softmax per directed pair + the
     # entailment column index. Tests patch `_nli_prob_vectors` to exercise the
@@ -132,8 +144,8 @@ def cluster_responses(
     fwd_vecs = prob_vecs[:m]
     bwd_vecs = prob_vecs[m:]
 
-    # Union-find over responses; merge i, j iff both directions entail.
-    parent = list(range(n))
+    # Union-find over the unique strings; merge i, j iff both directions entail.
+    parent = list(range(u))
 
     def find(x: int) -> int:
         while parent[x] != x:
@@ -154,15 +166,15 @@ def cluster_responses(
         if merge:
             union(i, j)
 
-    # Re-label roots to contiguous 0..C-1.
+    # Contiguous 0..C-1 labels for the unique strings, then expand to all responses.
     root_to_label: dict[int, int] = {}
-    assignment: list[int] = []
-    for i in range(n):
+    item_label: list[int] = []
+    for i in range(u):
         r = find(i)
         if r not in root_to_label:
             root_to_label[r] = len(root_to_label)
-        assignment.append(root_to_label[r])
-    return assignment
+        item_label.append(root_to_label[r])
+    return [item_label[uniq_index[r]] for r in responses]
 
 
 def entropy_from_assignment(assignment: Iterable[int]) -> float:
