@@ -23,7 +23,7 @@ from collections.abc import Mapping, Sequence
 
 import numpy as np
 
-from .h_sem import entropy_from_assignment, n_unique_clusters
+from .h_sem import entropy_from_assignment
 
 
 def fi_out_per_prompt(
@@ -80,27 +80,16 @@ def fi_out_summary(per_prompt: Mapping[int, float]) -> tuple[float, float]:
 
 
 def estimate_a_q(cluster_assignments: Mapping[int, Sequence[int]]) -> int:
-    """|A_q| via the Chao-1987 bias-corrected richness estimator (§7.8 P3, P2-4).
+    """|A_q| = number of DISTINCT pooled clusters observed across paraphrases (floor 1).
 
-    `observed` = distinct cluster IDs across all paraphrases. Chao-1987 corrects
-    for unseen clusters from the singleton/doubleton frequencies (clusters seen
-    exactly once / twice across the POOLED assignments):
-
-        n_chao = observed + f1 * (f1 - 1) / (2 * (f2 + 1))
-
-    Returns max(observed, round(n_chao)), floored at 1. The smoke used the raw
-    observed count (k=2 capped |A_q| at ~4); with this correction FI_out =
-    log2|A_q| - H_sem may shift UPWARD versus that baseline.
+    NOTE (2026-06-29): P2-4 used a Chao-1987 unseen-species correction here, but with
+    many singleton clusters it over-estimated wildly — |A_q| = 84 from 60 samples
+    (27 observed) in the 29-Jun Qwen smoke — inflating FI_out = log2|A_q| - H_sem and
+    making it untrustworthy. Capping at the observed count (i.e. dropping the Chao
+    extrapolation) recovers the directly-measured richness, which is the honest
+    quantity for this metric: |A_q| can never exceed the clusters actually seen.
     """
-    from collections import Counter
-
-    counts: Counter = Counter()
+    all_ids: set[int] = set()
     for assign in cluster_assignments.values():
-        counts.update(assign)
-    observed = len(counts)
-    if observed == 0:
-        return 1
-    f1 = sum(1 for c in counts.values() if c == 1)
-    f2 = sum(1 for c in counts.values() if c == 2)
-    n_chao = observed + (f1 * (f1 - 1)) / (2 * (f2 + 1))
-    return max(observed, int(round(n_chao)), 1)
+        all_ids.update(assign)
+    return max(1, len(all_ids))

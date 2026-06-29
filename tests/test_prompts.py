@@ -110,6 +110,16 @@ def test_parse_answer_line_prose_statement():
     assert parse_answer_line(_CHAIN + "So the final answer would be Denver.") == "Denver"
 
 
+def test_parse_answer_line_rejects_bare_label():
+    """2026-06-29: a refusal ending in a bare 'Answer:' must NOT extract the literal
+    label word — it falls back to the last meaningful line, or "" if there is none."""
+    assert parse_answer_line("Answer:") == ""
+    assert parse_answer_line("**Final Answer:**") == ""
+    refusal = "No context was provided, so I cannot determine the president.\n\nAnswer:"
+    got = parse_answer_line(refusal)
+    assert got != "Answer" and "cannot determine" in got.lower()
+
+
 def test_parse_answer_line_last_marker_wins():
     """Multiple label lines -> the last one is the final answer."""
     resp = "Answer: Paris\nOn reflection that is wrong.\nAnswer: London"

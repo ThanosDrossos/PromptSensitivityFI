@@ -22,6 +22,15 @@ data/paraphrases_smoke.parquet
 data/annotation_sample_v1.csv
 data/plots/
 data/plots_smoke/
+data/slides/
+# nested parquet / snapshot dirs under data/ (top-level data/*.parquet above
+# misses subdirs like data/_baseline_smoke_*/ and per-run inspection bundles).
+data/**/*.parquet
+data/_baseline_smoke_*/
+data/inspect_*/
+# generated slide decks + provided task-spec docs (not repo artifacts).
+*.pptx
+Implementation_Prompt_*.md
 .DS_Store
 # --- cluster ---
 # Job output fetched back from bwUniCluster; regenerable, don't commit.

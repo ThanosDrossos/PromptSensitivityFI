@@ -175,6 +175,15 @@ def _clean_answer(span: str) -> str:
     return span.strip().strip(_ANSWER_STRIP).strip()
 
 
+# A cleaned span that is JUST the label word (e.g. a refusal ending in a bare
+# "Answer:") is not an answer — reject it so we never extract the literal "Answer".
+_LABEL_NOISE = {"answer", "final answer", "the answer", "the final answer"}
+
+
+def _is_label_noise(s: str) -> bool:
+    return s.strip().lower() in _LABEL_NOISE
+
+
 def parse_answer_line(response: str) -> str:
     """Extract the final answer from a CoT response, tolerantly.
 
@@ -197,25 +206,28 @@ def parse_answer_line(response: str) -> str:
     label_matches = _ANSWER_LABEL_RE.findall(text)
     if label_matches:
         cand = _clean_answer(label_matches[-1])
-        if cand:
+        if cand and not _is_label_noise(cand):
             return cand
-        # Label present but value sits on a following line: take next non-empty.
+        # Label present but value sits on a following non-empty, non-label line.
         lines = text.splitlines()
         for i, line in enumerate(lines):
             if _ANSWER_LABEL_RE.match(line):
                 for nxt in lines[i + 1:]:
-                    if nxt.strip():
-                        return _clean_answer(nxt)
+                    c = _clean_answer(nxt)
+                    if c and not _is_label_noise(c):
+                        return c
 
     # 2. "the answer is X" prose — last occurrence.
     prose = list(_ANSWER_PROSE_RE.finditer(text + "\n"))
     if prose:
         cand = _clean_answer(prose[-1].group(1))
-        if cand:
+        if cand and not _is_label_noise(cand):
             return cand
 
-    # 3. fallback: last non-empty line (NOT the whole essay).
+    # 3. fallback: last non-empty, non-label line (NOT the whole essay). A response
+    #    that is only a bare "Answer:" (a refusal) yields "" rather than "Answer".
     for line in reversed(text.splitlines()):
-        if line.strip():
-            return _clean_answer(line)
-    return _clean_answer(text)
+        c = _clean_answer(line)
+        if c and not _is_label_noise(c):
+            return c
+    return ""
