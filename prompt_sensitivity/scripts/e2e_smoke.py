@@ -433,6 +433,13 @@ def _parse_args() -> argparse.Namespace:
              "collapse is directly inspectable. Default ON; --no-dump-hsem-samples "
              "to disable.",
     )
+    parser.add_argument(
+        "--inspect-n", type=int, default=0,
+        help="Write a start->finish inspection bundle (question -> gold chain -> "
+             "paraphrases + role/NLI -> prompt -> F-responses -> scores -> H_sem "
+             "clusters -> metrics) for the FIRST N distinct questions, to "
+             "data/inspect_<out-stem>.md. 0 = off; the full pilot uses ~6.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -588,6 +595,9 @@ def main() -> int:
     # are not re-sampled, so their samples aren't re-dumped — it's a best-effort
     # audit aid, written once at the end).
     hsem_rows_all: list[dict] = []
+    # Item 2: full start->finish trace for the first N distinct questions.
+    inspect_qids = {q.id for q in questions[: args.inspect_n]} if args.inspect_n > 0 else set()
+    inspect_recs: list[dict] = []
     if out_path.exists():
         try:
             prev = pd.read_parquet(out_path)
@@ -613,12 +623,13 @@ def main() -> int:
                     continue
                 t_cell = time.perf_counter()
                 try:
-                    row_dict, hsem_rows = _run_cell(
+                    row_dict, hsem_rows, inspect_rec = _run_cell(
                         config, q, row, model_key, paraphrases,
                         k_samples=k_samples, answer_max=answer_max, cot_max=cot_max,
                         include_posix=args.include_posix, fast=args.fast,
                         own_encoder=args.own_encoder,
                         dump_hsem_samples=args.dump_hsem_samples,
+                        inspect=q.id in inspect_qids,
                     )
                 except Exception:  # noqa: BLE001 — isolate cell failures
                     n_failed += 1
@@ -629,6 +640,8 @@ def main() -> int:
                     continue
                 rows_out.append(row_dict)
                 hsem_rows_all.extend(hsem_rows)
+                if inspect_rec is not None:
+                    inspect_recs.append(inspect_rec)
                 done_keys.add(key)
                 n_done += 1
                 # Per-cell timing so the first cell lets us extrapolate walltime.
@@ -653,6 +666,12 @@ def main() -> int:
         sidecar = out_path.parent / f"hsem_samples_{out_path.stem}.parquet"
         pd.DataFrame(hsem_rows_all).to_parquet(sidecar, index=False)
         logger.info("H_sem sample sidecar: {} rows -> {}", len(hsem_rows_all), sidecar)
+
+    # Item 2: start->finish inspection bundle for the subsample of questions.
+    if args.inspect_n > 0 and inspect_recs:
+        insp = out_path.parent / f"inspect_{out_path.stem}.md"
+        insp.write_text(_render_inspection_md(inspect_recs, repo_root), encoding="utf-8")
+        logger.info("inspection bundle: {} cell(s) -> {}", len(inspect_recs), insp)
 
     _print_summary(pd.DataFrame(rows_out), out_path)
     return 0 if n_failed == 0 else 2
@@ -685,7 +704,8 @@ def _run_cell(
     fast: bool = False,
     own_encoder: bool = False,
     dump_hsem_samples: bool = False,
-) -> tuple[dict, list[dict]]:
+    inspect: bool = False,
+) -> tuple[dict, list[dict], dict | None]:
     """Run one (question, ladder-row, model) cell -> (result row dict, hsem sidecar rows).
 
     `fast=True` skips the H_sem sampling + pooled NLI clustering + embeddings +
@@ -850,7 +870,52 @@ def _run_cell(
     row_dict["final_answer_f_mean"] = final_answer_f_mean
     row_dict["final_answer_f_mean_permissive"] = final_answer_f_mean_permissive
     row_dict["n_hops"] = q.n_hops
-    return row_dict, hsem_rows
+
+    # Per-run inspection capture (item 2): full start->finish trace for a small
+    # subsample of questions, so a run can be audited by hand. Lean: texts
+    # truncated, H_sem dumped as a per-paraphrase cluster/answer summary (the full
+    # samples live in the hsem_samples sidecar).
+    inspect_rec: dict | None = None
+    if inspect:
+        per = []
+        for i, para in enumerate(paraphrases):
+            per.append({
+                "paraphrase_idx": i,
+                "paraphrase": para,
+                "prompt_user": prompt_user_texts[i][:700],
+                "f_response": f_responses[i][:700],
+                "final_answer": parse_answer_line(f_responses[i]),
+                "score": round(float(f_scores[i]), 3),
+            })
+        hsem_summary = None
+        if not fast and cluster_assignments:
+            hsem_summary = {
+                "k": k_samples,
+                "distinct_clusters": len({c for a in cluster_assignments.values() for c in a}),
+                "per_paraphrase": {
+                    i: {"clusters": list(cluster_assignments.get(i, [])),
+                        "answers": list(extracted_per_paraphrase.get(i, []))}
+                    for i in sorted(responses_per_paraphrase)
+                },
+            }
+        inspect_rec = {
+            "question_id": q.id, "dataset": q.dataset, "n_hops": q.n_hops,
+            "question": q.question, "gold_answer": q.answer,
+            "decomposition": [
+                {"hop": d.hop_idx, "sub_question": d.sub_question, "sub_answer": d.sub_answer}
+                for d in q.question_decomposition
+            ],
+            "ladder_family": row.ladder_family, "ladder_type": row.ladder_type,
+            "level": row.level, "model_key": model_key, "scoring_mode": scoring_mode,
+            "paraphrases": per,
+            "hsem": hsem_summary,
+            "metrics": {
+                "f_mean": tup.f_mean, "final_answer_f_mean": final_answer_f_mean,
+                "h_sem_mean": tup.h_sem_mean, "a_q": tup.a_q,
+                "aufi_in": tup.aufi_in, "fi_out_mean": tup.fi_out_mean,
+            },
+        }
+    return row_dict, hsem_rows, inspect_rec
 
 
 def _posix_matrix(client, model_entry, prompt_messages, f_responses, q, row):
@@ -948,6 +1013,81 @@ def _print_summary(out_df: pd.DataFrame, out_path: Path) -> None:
         "plausibility_warnings": len(bad),
         "out_path": str(out_path),
     }, indent=2))
+
+
+def _fmt(v) -> str:
+    return "—" if v is None or (isinstance(v, float) and math.isnan(v)) else f"{v:.3f}"
+
+
+def _render_inspection_md(records: list[dict], repo_root: Path) -> str:
+    """Human-readable start->finish audit for the inspected questions (item 2):
+    question -> gold chain -> paraphrase universe (+ role/NLI) -> per-cell prompt,
+    F-responses, scores, and the H_sem answer->cluster map -> metrics."""
+    roles: dict[tuple, dict] = {}
+    ppath = repo_root / "data" / "paraphrases_musique.parquet"
+    if ppath.exists():
+        try:
+            pdf = pd.read_parquet(ppath)
+            for _, r in pdf.iterrows():
+                roles[(str(r.get("question_id")), int(r.get("paraphrase_idx", -1)))] = {
+                    "role": r.get("role"),
+                    "nli": (r.get("nli_entail_fwd"), r.get("nli_entail_bwd")),
+                }
+        except Exception:  # noqa: BLE001
+            pass
+
+    def t(s, n: int = 160) -> str:
+        s = " ".join(str(s).split()).replace("|", "\\|")
+        return s if len(s) <= n else s[:n] + "…"
+
+    by_q: dict[str, list[dict]] = {}
+    for rec in records:
+        by_q.setdefault(rec["question_id"], []).append(rec)
+
+    out = ["# Run inspection bundle", "",
+           f"{len(by_q)} question(s) traced start→finish; {len(records)} cell(s). "
+           "Full per-sample text is in the `hsem_samples_*.parquet` sidecar.", ""]
+    for qi, (qid, cells) in enumerate(by_q.items(), 1):
+        c0 = cells[0]
+        out += [f"## {qi}. `{qid}` — {c0['dataset']}, {c0['n_hops']} hops, model `{c0['model_key']}`",
+                f"**Question:** {c0['question']}", "", f"**Gold answer:** {c0['gold_answer']}", ""]
+        if c0["decomposition"]:
+            out.append("**Gold reasoning chain:**")
+            out += [f"{d['hop'] + 1}. {d['sub_question']} → *{d['sub_answer']}*"
+                    for d in c0["decomposition"]]
+            out.append("")
+        out += ["**Paraphrase universe** (NLI-filtered, answer-set preserved):", "",
+                "| # | role | NLI fwd/bwd | paraphrase |", "|--:|------|-------------|------------|"]
+        for p in c0["paraphrases"]:
+            meta = roles.get((qid, p["paraphrase_idx"]), {})
+            nli = meta.get("nli", (None, None))
+            nli_s = f"{nli[0]:.2f}/{nli[1]:.2f}" if nli[0] is not None else "—"
+            out.append(f"| {p['paraphrase_idx']} | {meta.get('role', '?')} | {nli_s} | {t(p['paraphrase'])} |")
+        out.append("")
+        for c in cells:
+            m = c["metrics"]
+            out += [f"### {c['ladder_family']} ladder · level {c['level']} · {c['scoring_mode']}",
+                    f"**Metrics:** f_mean={_fmt(m['f_mean'])} · final-answer F={_fmt(m['final_answer_f_mean'])}"
+                    f" · H_sem={_fmt(m['h_sem_mean'])} bits · |A_q|={m['a_q']}"
+                    f" · AUFI_in={_fmt(m['aufi_in'])} · FI_out={_fmt(m['fi_out_mean'])}", ""]
+            if c["paraphrases"]:
+                out += ["<details><summary>Prompt put to the model (paraphrase 0)</summary>", "",
+                        "```", c["paraphrases"][0]["prompt_user"], "```", "</details>", ""]
+            out += ["| para | F-response (T=0) | final answer | F |",
+                    "|--:|------------------|--------------|--:|"]
+            for p in c["paraphrases"]:
+                out.append(f"| {p['paraphrase_idx']} | {t(p['f_response'])} | "
+                           f"{t(p['final_answer'], 40)} | {p['score']} |")
+            out.append("")
+            if c["hsem"]:
+                h = c["hsem"]
+                out.append(f"**H_sem** (k={h['k']}, {h['distinct_clusters']} output clusters) — "
+                           "per-paraphrase answer→cluster:")
+                for i, pp in h["per_paraphrase"].items():
+                    pairs = ", ".join(f"{t(a, 24)}→c{cl}" for a, cl in zip(pp["answers"], pp["clusters"]))
+                    out.append(f"- p{i}: {pairs}")
+                out.append("")
+    return "\n".join(out)
 
 
 if __name__ == "__main__":

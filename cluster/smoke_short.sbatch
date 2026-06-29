@@ -58,6 +58,7 @@ echo "=== Qwen @ k=10, answer-level + label clustering ==="
 python -m prompt_sensitivity.scripts.e2e_smoke \
   --musique-direct 1 --families context --ladders random --levels 0,8 \
   --k-samples 10 --max-paraphrases 6 --models qwen_2_5_7b --own-encoder \
+  --inspect-n 1 \
   --out data/smoke_hsem.parquet \
   2>&1 | tee cluster_logs/smoke_hsem_eval.log
 

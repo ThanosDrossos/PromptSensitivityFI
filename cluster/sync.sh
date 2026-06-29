@@ -114,7 +114,7 @@ pull_tar() {
   # ONE ssh connection (=> one OTP prompt) for everything: cluster_logs + every
   # data/*.parquet + data/plots, tarred remotely and streamed back. The old loop
   # opened a fresh connection — and a fresh OTP+password prompt — per file.
-  $SSH_CMD "$REMOTE" "cd '$REMOTE_DIR' 2>/dev/null && items=\$(ls -d cluster_logs data/*.parquet data/plots 2>/dev/null) && [ -n \"\$items\" ] && tar czf - \$items" \
+  $SSH_CMD "$REMOTE" "cd '$REMOTE_DIR' 2>/dev/null && items=\$(ls -d cluster_logs data/*.parquet data/*.md data/plots 2>/dev/null) && [ -n \"\$items\" ] && tar czf - \$items" \
     | tar xzf - -C . 2>/dev/null \
     && echo "   pulled cluster_logs + data/*.parquet + data/plots (whatever existed)" \
     || echo "   (nothing pulled yet — has the job written its parquet?)"

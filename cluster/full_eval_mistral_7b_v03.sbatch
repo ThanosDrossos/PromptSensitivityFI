@@ -39,6 +39,7 @@ python -m prompt_sensitivity.scripts.e2e_smoke \
   --musique-strata 17 --families context,reasoning --ladders random \
   --levels 0,2,4,6,8,10 --k-samples 10 --max-paraphrases 30 \
   --models "$M" --own-encoder --include-posix \
+  --inspect-n 6 \
   --out "data/full_${M}.parquet" \
   2>&1 | tee "cluster_logs/full_eval_${M}.log"
 
