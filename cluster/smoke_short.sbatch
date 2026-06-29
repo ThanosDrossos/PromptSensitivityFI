@@ -1,14 +1,18 @@
 #!/bin/bash
-# FAST acceptance smoke on the SHORT A100 partition. Use this when gpu_a100_il is
-# backlogged: gpu_a100_short = Cascade-Lake A100, 12 nodes (vs 9 on _il), 30-min
-# walltime cap, no daytime reservation -> short jobs backfill almost immediately.
+# FAST smoke on the SHORT A100 partition (gpu_a100_short: Cascade-Lake A100,
+# 12 nodes, 30-min cap, no daytime reservation -> backfills almost immediately).
 #
-# Trimmed to 1 MuSiQue question (levels 0,8, k=1) so the whole thing — 4-model
-# local_check + Phi-4 paraphrase smoke + 1-q dual-ladder eval — fits well under
-# 30 min. This is a PLUMBING gate (verifies Phi-4 loads, local_check gating works,
-# and the new columns are populated), NOT the real run. For the real pilot use
-# cluster/submit_full_pilot.sh (gpu_a100_il, off-peak).
+# Validates the pilot-prep + H_sem-clustering-collapse fix on the model that
+# collapsed worst (Qwen2.5-7B had a_q==1 -> H_sem=0 in 100% of cells on 23-Jun).
+# Scoped to FIT 30 min: Qwen only, 1 MuSiQue question, context ladder levels 0,8,
+# k=10, new defaults (cluster_on=answer, cluster_criterion=label). Exercises the
+# Phi-4 generator (live paraphrases), local_check flag-gating, the a_q column +
+# degeneracy warning, and the per-sample audit sidecar.
 #
+# The full 3-model / dual-ladder / k=10 validation is the gpu_a100_il job (run the
+# 3-question command in the PR notes, or cluster/e2e_local.sbatch with k bumped).
+#
+#   bash cluster/run.sh push          # FROM LAPTOP FIRST — the fix must reach the cluster
 #   sbatch cluster/smoke_short.sbatch
 #   squeue --me
 #
@@ -39,25 +43,28 @@ if [[ ! -s data/raw/musique/musique_ans_v1.0_dev.jsonl ]]; then
   echo "ERROR: data/raw/musique/musique_ans_v1.0_dev.jsonl missing (README §6b)."; exit 1
 fi
 
-echo "=== gate 2: local_check (3 eval models all-caps + phi_4_14b generate-only) ==="
-if ! python -m prompt_sensitivity.scripts.local_check 2>&1 | tee cluster_logs/smoke_local_check.log; then
+# Fail-fast capability check for the two models this smoke uses: Qwen (eval, all
+# caps) and Phi-4 (generator+judge, generate-only via the P3-3b flag gating).
+echo "=== local_check: qwen_2_5_7b + phi_4_14b ==="
+if ! python -m prompt_sensitivity.scripts.local_check --models qwen_2_5_7b,phi_4_14b \
+     2>&1 | tee cluster_logs/smoke_local_check.log; then
   echo "ABORT: local_check failed (check Phi-4 load / chat template)."; exit 1
 fi
 
-echo "=== gate 3: Phi-4 paraphrase smoke (1 q) ==="
+# H_sem-fix validation. --musique-direct generates the paraphrase universe live
+# via the Phi-4 generator, then evaluates Qwen at k=10. --dump-hsem-samples is on
+# by default -> data/hsem_samples_smoke_hsem.parquet for the audit.
+echo "=== Qwen @ k=10, answer-level + label clustering ==="
 python -m prompt_sensitivity.scripts.e2e_smoke \
-  --musique-direct 1 --paraphrase-only --max-paraphrases 6 \
-  2>&1 | tee cluster_logs/smoke_paraphrase.log
+  --musique-direct 1 --families context --ladders random --levels 0,8 \
+  --k-samples 10 --max-paraphrases 6 --models qwen_2_5_7b --own-encoder \
+  --out data/smoke_hsem.parquet \
+  2>&1 | tee cluster_logs/smoke_hsem_eval.log
 
-echo "=== gate 4: 1-q dual-ladder eval (llama, levels 0,8, k=1, own-encoder + POSIX) ==="
-python -m prompt_sensitivity.scripts.e2e_smoke \
-  --musique-direct 1 --families context,reasoning --ladders random \
-  --levels 0,8 --k-samples 1 --max-paraphrases 6 \
-  --models llama_3_1_8b --own-encoder --include-posix \
-  --out data/smoke_short.parquet \
-  2>&1 | tee cluster_logs/smoke_eval.log
-
-echo "=== results (expect non-null posix_psi/fi_out_var, 21-pt fi_in_curve_vals + CI) ==="
-python -m prompt_sensitivity.scripts.show_results --in data/smoke_short.parquet \
-  2>&1 | tee cluster_logs/smoke_show.log || true
+# The OUTPUT-CLUSTER DEGENERACY block is the headline: Qwen should now have at
+# least one cell with a_q>1 (h_sem_mean>0). If it stays a_q==1, the sidecar tells
+# you whether the samples are genuinely identical or still over-merging.
+echo "=== results ==="
+python -m prompt_sensitivity.scripts.show_results --in data/smoke_hsem.parquet \
+  2>&1 | tee cluster_logs/smoke_hsem_show.log || true
 echo "DONE $(date -Iseconds)"
