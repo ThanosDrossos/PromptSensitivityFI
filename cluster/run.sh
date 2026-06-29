@@ -25,10 +25,14 @@ if [[ -z "${BWUC_USER:-}" ]]; then
 fi
 REMOTE="$BWUC_USER@$BWUC_HOST"
 
-# ssh transport as an array so a key path is passed safely.
-SSH_CMD=(ssh)
+# ssh transport as an array so a key path is passed safely. ControlMaster
+# multiplexing (shared with sync.sh via the same ControlPath) means one OTP +
+# password authenticates the master, and check/submit/status + a following
+# push/pull reuse it for ControlPersist instead of re-prompting each time.
+SSH_MUX=(-o ControlMaster=auto -o ControlPath="$HOME/.ssh/cm-%C" -o ControlPersist=10m)
+SSH_CMD=(ssh "${SSH_MUX[@]}")
 if [[ -n "${BWUC_SSH_KEY:-}" ]]; then
-  SSH_CMD=(ssh -i "$BWUC_SSH_KEY" -o IdentitiesOnly=yes)
+  SSH_CMD=(ssh "${SSH_MUX[@]}" -i "$BWUC_SSH_KEY" -o IdentitiesOnly=yes)
 fi
 
 check() {

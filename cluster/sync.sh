@@ -29,9 +29,17 @@ REMOTE="$BWUC_USER@$BWUC_HOST"
 
 # Build the ssh transport rsync uses. With BWUC_SSH_KEY set, force that key
 # (IdentitiesOnly stops the agent from offering other keys first).
-SSH_CMD="ssh"
+#
+# Connection MULTIPLEXING: the first connection authenticates (OTP + service
+# password) and opens a master control socket that every later ssh/scp to the
+# same host reuses for ControlPersist. Without it, bwUniCluster's 2FA re-prompts
+# on EVERY connection — and tar-over-ssh pull opens one per file. ControlPath uses
+# %C (a hash) so the path has no ':' and is safe on Windows/MSYS. Falls back
+# gracefully to a normal connection if the ssh build lacks multiplexing.
+SSH_MUX="-o ControlMaster=auto -o ControlPath=$HOME/.ssh/cm-%C -o ControlPersist=10m"
+SSH_CMD="ssh $SSH_MUX"
 if [[ -n "${BWUC_SSH_KEY:-}" ]]; then
-  SSH_CMD="ssh -i $BWUC_SSH_KEY -o IdentitiesOnly=yes"
+  SSH_CMD="ssh $SSH_MUX -i $BWUC_SSH_KEY -o IdentitiesOnly=yes"
 fi
 
 # Exclusions: never sync the venv, large/regenerable data, logs, git, or any
@@ -105,26 +113,13 @@ push_tar() {
 }
 
 pull_tar() {
-  # cluster_logs (skip cleanly if the job hasn't created it yet)
-  if $SSH_CMD "$REMOTE" "test -d '$REMOTE_DIR/cluster_logs'"; then
-    $SSH_CMD "$REMOTE" "tar czf - -C '$REMOTE_DIR' cluster_logs" | tar xzf - -C .
-  else
-    echo "   (cluster_logs/ not present yet)"
-  fi
-  # result parquets (best-effort)
-  for f in "${PULL_FILES[@]}"; do
-    if $SSH_CMD "$REMOTE" "test -f '$REMOTE_DIR/$f'"; then
-      $SSH_CMD "$REMOTE" "tar czf - -C '$REMOTE_DIR' '$f'" | tar xzf - -C .
-    else
-      echo "   ($f not present yet)"
-    fi
-  done
-  # plots dir (best-effort)
-  if $SSH_CMD "$REMOTE" "test -d '$REMOTE_DIR/data/plots'"; then
-    $SSH_CMD "$REMOTE" "tar czf - -C '$REMOTE_DIR' data/plots" | tar xzf - -C .
-  else
-    echo "   (data/plots/ not present yet)"
-  fi
+  # ONE ssh connection (=> one OTP prompt) for everything: cluster_logs + every
+  # data/*.parquet + data/plots, tarred remotely and streamed back. The old loop
+  # opened a fresh connection — and a fresh OTP+password prompt — per file.
+  $SSH_CMD "$REMOTE" "cd '$REMOTE_DIR' 2>/dev/null && items=\$(ls -d cluster_logs data/*.parquet data/plots 2>/dev/null) && [ -n \"\$items\" ] && tar czf - \$items" \
+    | tar xzf - -C . 2>/dev/null \
+    && echo "   pulled cluster_logs + data/*.parquet + data/plots (whatever existed)" \
+    || echo "   (nothing pulled yet — has the job written its parquet?)"
 }
 
 # ---- dispatch -------------------------------------------------------------
