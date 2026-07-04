@@ -1,0 +1,58 @@
+[
+  {
+    "_comment": "HF 'light' flattened form, real validation record (multipleQAs + singleAnswer annotators)",
+    "id": "8630912480840635425",
+    "question": "Why did the st louis cardinals move to arizona?",
+    "annotations": {
+      "type": ["singleAnswer", "multipleQAs"],
+      "answer": [
+        ["mediocrity of the Cardinals,a then-21-year-old stadium,game attendance to dwindle"],
+        []
+      ],
+      "qaPairs": [
+        {"question": [], "answer": []},
+        {
+          "question": [
+            "What ability caused the st louis cardinals move to arizona?",
+            "What physical issue caused the st louis cardinals move to arizona?",
+            "What fan issue caused the st louis cardinals move to arizona?"
+          ],
+          "answer": [
+            ["overall mediocrity of the Cardinals"],
+            ["old stadium"],
+            ["game attendance to dwindle"]
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "_comment": "HF 'light' flattened form, real validation record (singleAnswer only)",
+    "id": "-807825952267713091",
+    "question": "Who plays the doctor in dexter season 1?",
+    "annotations": {
+      "type": ["singleAnswer"],
+      "answer": [["Tony Goldwyn", "Goldwyn"]],
+      "qaPairs": [{"question": [], "answer": []}]
+    }
+  },
+  {
+    "_comment": "GitHub-release form (list of annotation dicts) of the same multipleQAs record",
+    "id": "release-8630912480840635425",
+    "question": "Why did the st louis cardinals move to arizona?",
+    "annotations": [
+      {
+        "type": "singleAnswer",
+        "answer": ["mediocrity of the Cardinals,a then-21-year-old stadium,game attendance to dwindle"]
+      },
+      {
+        "type": "multipleQAs",
+        "qaPairs": [
+          {"question": "What ability caused the st louis cardinals move to arizona?", "answer": ["overall mediocrity of the Cardinals"]},
+          {"question": "What physical issue caused the st louis cardinals move to arizona?", "answer": ["old stadium"]},
+          {"question": "What fan issue caused the st louis cardinals move to arizona?", "answer": ["game attendance to dwindle"]}
+        ]
+      }
+    ]
+  }
+]
