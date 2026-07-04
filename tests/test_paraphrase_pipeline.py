@@ -13,17 +13,29 @@ and the dropped-question case.
 
 from __future__ import annotations
 
-import math
-from typing import Iterable, Sequence
+from typing import Iterable
 from unittest.mock import patch
 
-import pytest
-
-from prompt_sensitivity.paraphrases import schemas as ps_schemas
 from prompt_sensitivity.paraphrases.constraint_filter import JaccardResult
 from prompt_sensitivity.paraphrases.nli_filter import NLIScores
 from prompt_sensitivity.paraphrases.pipeline import build_paraphrase_set
 from prompt_sensitivity.paraphrases.schemas import RawParaphrase
+
+
+def _config_target_30():
+    """Config with n_per_question pinned to 30.
+
+    These scenarios (batch sizes, dedup counts, regeneration schedule) were
+    designed for the original target of 30; the specificity pivot lowered the
+    RUN default to 10 (config.yaml), so the tests pin their own target instead
+    of inheriting it — they exercise pipeline mechanics, not the config value.
+    """
+    from prompt_sensitivity.config import load_config
+
+    cfg = load_config()
+    return cfg.model_copy(
+        update={"paraphrases": cfg.paraphrases.model_copy(update={"n_per_question": 30})}
+    )
 
 
 def _make_raw(qid: str, role: str, idx: int, text: str) -> RawParaphrase:
@@ -96,7 +108,7 @@ def test_happy_path_30_accepted(monkeypatch):
         "prompt_sensitivity.paraphrases.pipeline.filter_by_constraint",
         side_effect=_high_constraint,
     ):
-        pset = build_paraphrase_set("q1", "What is the capital of France?")
+        pset = build_paraphrase_set("q1", "What is the capital of France?", config=_config_target_30())
     assert pset.is_complete(30)
     assert len(pset.accepted) == 30
     # No NLI / constraint rejections in the happy path.
@@ -128,7 +140,7 @@ def test_regeneration_until_target(monkeypatch):
         "prompt_sensitivity.paraphrases.pipeline.filter_by_constraint",
         side_effect=_high_constraint,
     ):
-        pset = build_paraphrase_set("q2", "Q?")
+        pset = build_paraphrase_set("q2", "Q?", config=_config_target_30())
     assert pset.is_complete(30)
     assert pset.regeneration_attempts >= 2
 
@@ -186,7 +198,7 @@ def test_gold_answer_routes_to_gold_filter(monkeypatch):
         "prompt_sensitivity.paraphrases.pipeline.filter_by_constraint",
         side_effect=fake_jaccard_filter,
     ):
-        pset = build_paraphrase_set("q5", "What?", gold_answer="Paris")
+        pset = build_paraphrase_set("q5", "What?", gold_answer="Paris", config=_config_target_30())
 
     assert pset.is_complete(30)
     assert gold_calls, "gold filter must be used when gold_answer is supplied"
@@ -222,7 +234,7 @@ def test_no_gold_answer_falls_back_to_jaccard(monkeypatch):
         "prompt_sensitivity.paraphrases.pipeline.filter_by_constraint",
         side_effect=fake_jaccard_filter,
     ):
-        pset = build_paraphrase_set("q6", "What?")  # no gold_answer
+        pset = build_paraphrase_set("q6", "What?", config=_config_target_30())  # no gold_answer
 
     assert pset.is_complete(30)
     assert jaccard_calls, "jaccard filter must be used when no gold_answer"

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from prompt_sensitivity.scoring import NLIScoreResult, exact_match_score
 
 

@@ -26,9 +26,6 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Optional
-
-import numpy as np
 
 from ..config import Config, load_config
 

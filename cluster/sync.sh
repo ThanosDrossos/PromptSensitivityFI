@@ -79,6 +79,9 @@ PULL_FILES=(
   data/paraphrases_musique.parquet
   data/smoke_hsem.parquet
   data/hsem_samples_smoke_hsem.parquet
+  data/paraphrases_ambigqa.parquet
+  data/smoke_specificity.parquet
+  data/specificity_metrics.parquet
   data/full_llama_3_1_8b.parquet
   data/full_mistral_7b_v03.parquet
   data/full_qwen_2_5_7b.parquet
