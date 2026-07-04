@@ -81,10 +81,20 @@ class MetricTuple(BaseModel):
     rho_u: float | None = None          # Cox 2025 U_e / U_t
     h_sem_mean: float | None = None
     h_sem_var: float | None = None
-    # |A_q| — distinct pooled output clusters across paraphrases (Chao-corrected,
-    # fi_out.estimate_a_q). Surfaced so a clustering collapse (a_q == 1, which
+    # |A_q| — distinct pooled output clusters across paraphrases
+    # (fi_out.estimate_a_q). Surfaced so a clustering collapse (a_q == 1, which
     # floors H_sem/FI_out/variation_ratio) is auditable and can't hide as a zero.
     a_q: int | None = None
+
+    # AmbigQA specificity pivot (2026-07): normative question specificity.
+    # FI_spec = log2(m0/m_valid) is DATASET-side (computed by the driver via
+    # metrics/fi_spec.py, not by the orchestrator). All optional so pre-pivot
+    # parquets and the MuSiQue path keep loading unchanged.
+    fi_spec: float | None = None        # log2(m0/m_valid), from fi_spec_bits
+    spec_level: int | None = None       # 0 = ambiguous | 1 = disambiguated
+    m_valid: int | None = None
+    m0: int | None = None
+    target_idx: int | None = None
 
     # Diagnostics for the audit trail.
     n_paraphrases: int = 0

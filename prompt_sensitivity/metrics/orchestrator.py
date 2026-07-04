@@ -62,21 +62,36 @@ def build_metric_tuple(
     posix_lengths: np.ndarray | None = None,
     encoder_label: str = "external_mpnet",
     config: Any = None,
+    fi_spec: float | None = None,
+    spec_level: int | None = None,
+    m_valid: int | None = None,
+    m0: int | None = None,
+    target_idx: int | None = None,
 ) -> MetricTuple:
     """Compute the 11-scalar MetricTuple for one (q, ladder, level, model) cell.
 
     All metrics that can be computed are; the ones whose inputs are missing
     (e.g. POSIX when posix_log_p is None) come back as None on the tuple.
+
+    The specificity fields (fi_spec/spec_level/m_valid/m0/target_idx) are
+    dataset-side pass-throughs from the AmbigQA driver — NOT computed here; the
+    orchestrator remains the model-side math only.
     """
     scores = list(scores)
     n_paraphrases = len(scores)
     if n_paraphrases == 0:
-        # Degenerate: no data. Return a tuple of Nones.
+        # Degenerate: no data. Return a tuple of Nones (dataset-side spec fields
+        # are still known and kept).
         return MetricTuple(
             question_id=question_id,
             ladder_type=ladder_type,
             level=level,
             model_key=model_key,
+            fi_spec=fi_spec,
+            spec_level=spec_level,
+            m_valid=m_valid,
+            m0=m0,
+            target_idx=target_idx,
             n_paraphrases=0,
             n_samples_per_prompt=0,
             encoder_label=encoder_label,
@@ -180,6 +195,11 @@ def build_metric_tuple(
         h_sem_mean=h_mean,
         h_sem_var=h_var,
         a_q=a_q,
+        fi_spec=fi_spec,
+        spec_level=spec_level,
+        m_valid=m_valid,
+        m0=m0,
+        target_idx=target_idx,
         n_paraphrases=n_paraphrases,
         n_samples_per_prompt=n_samples,
         encoder_label=encoder_label,

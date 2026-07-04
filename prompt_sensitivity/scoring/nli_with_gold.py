@@ -180,6 +180,34 @@ def f_score_batch(
     ]
 
 
+def f_score_batch_multi_gold(
+    golds: list[str],
+    answers: Iterable[str],
+    *,
+    config: Config | None = None,
+    permissive: bool = False,
+) -> list[int]:
+    """F=1 iff the answer passes against ANY gold in `golds` (OR over variants).
+
+    AmbigQA interpretations carry a LIST of accepted answer variants per target
+    (e.g. ["Tony Goldwyn", "Goldwyn"]); an answer matching any variant is
+    correct. Implemented as f_score_batch per gold + element-wise maximum, so the
+    single-gold semantics (thresholds, permissive mode) stay identical. Empty
+    `golds` -> all zeros.
+    """
+    answers = list(answers)
+    if not answers:
+        return []
+    golds = [g for g in golds if g and g.strip()]
+    if not golds:
+        return [0] * len(answers)
+    combined = [0] * len(answers)
+    for gold in golds:
+        scores = f_score_batch(gold, answers, config=config, permissive=permissive)
+        combined = [max(c, s) for c, s in zip(combined, scores, strict=True)]
+    return combined
+
+
 # --------------------------------------------------------------------------- #
 # Exact-match (appendix-only sanity check)                                   #
 # --------------------------------------------------------------------------- #

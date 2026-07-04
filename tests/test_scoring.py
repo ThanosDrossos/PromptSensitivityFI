@@ -48,3 +48,27 @@ def test_exact_match_used_only_as_appendix(monkeypatch):
     assert scoring.f_score.__module__.endswith("nli_with_gold")
     # Exact-match is still available for the appendix.
     assert callable(scoring.exact_match_score)
+
+
+def test_f_score_batch_multi_gold_is_or_over_variants(monkeypatch):
+    """AmbigQA pivot §6: F=1 iff the answer passes against ANY gold variant.
+
+    The heavy per-gold scorer is patched with a deterministic fake (exact match
+    against that gold), so the OR/elementwise-max logic runs without DeBERTa.
+    """
+    from prompt_sensitivity.scoring import nli_with_gold as m
+
+    def fake_f_score_batch(gold, answers, *, config=None, permissive=False):
+        return [1 if a == gold else 0 for a in answers]
+
+    monkeypatch.setattr(m, "f_score_batch", fake_f_score_batch)
+
+    answers = ["Tony Goldwyn", "Goldwyn", "Michael C. Hall"]
+    got = m.f_score_batch_multi_gold(["Tony Goldwyn", "Goldwyn"], answers)
+    assert got == [1, 1, 0]           # either variant counts, wrong answer does not
+
+    # empty inputs are safe
+    assert m.f_score_batch_multi_gold([], answers) == [0, 0, 0]
+    assert m.f_score_batch_multi_gold(["x"], []) == []
+    # blank golds are ignored rather than scored
+    assert m.f_score_batch_multi_gold(["", "  "], answers) == [0, 0, 0]

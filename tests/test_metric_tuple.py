@@ -53,3 +53,24 @@ def test_p1_3_bootstrap_ci_brackets_curve():
     assert len(t.fi_in_ci_lower) == len(t.fi_in_curve_vals) == len(t.fi_in_ci_upper)
     for lo, v, hi in zip(t.fi_in_ci_lower, t.fi_in_curve_vals, t.fi_in_ci_upper):
         assert lo - 1e-9 <= v <= hi + 1e-9
+
+
+def test_specificity_fields_default_none_and_pass_through():
+    """AmbigQA pivot §7: fi_spec/spec_level/m_valid/m0/target_idx default None
+    (old parquets keep loading) and pass through when the driver supplies them."""
+    t = _build()
+    assert t.fi_spec is None and t.spec_level is None
+    assert t.m_valid is None and t.m0 is None and t.target_idx is None
+
+    t2 = _build(fi_spec=2.0, spec_level=1, m_valid=1, m0=4, target_idx=2)
+    assert t2.fi_spec == 2.0 and t2.spec_level == 1
+    assert t2.m_valid == 1 and t2.m0 == 4 and t2.target_idx == 2
+
+    # degenerate (no scores) still carries the dataset-side fields
+    t3 = build_metric_tuple(
+        question_id="q", ladder_type="random", level=0, model_key="m",
+        scores=[], cluster_assignments={},
+        prompt_embeddings=np.zeros((0, 8)), response_embeddings={},
+        fi_spec=1.0, spec_level=0, m_valid=2, m0=2, target_idx=0,
+    )
+    assert t3.fi_spec == 1.0 and t3.spec_level == 0 and t3.m0 == 2
