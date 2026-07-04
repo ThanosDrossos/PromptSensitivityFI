@@ -35,12 +35,27 @@ class SamplingDatasetConfig(_Frozen):
     local_path: str | None = None
 
 
+class AmbigQASamplingConfig(_Frozen):
+    """AmbigQA sampling (specificity pivot, 2026-07). Own block rather than a
+    SamplingDatasetConfig because the knobs differ (interpretation filters, no
+    stratify/local_path)."""
+
+    hf_dataset: str = "ambig_qa"
+    hf_config: str = "light"
+    split: str = "validation"          # AmbigQA test split is not public
+    n_questions: int = 50
+    min_interpretations: int = 2       # keep only genuinely ambiguous records
+    include_single_answer_anchor: bool = False
+
+
 class SamplingConfig(_Frozen):
     hotpotqa: SamplingDatasetConfig
     twiki: SamplingDatasetConfig
     # v6: MuSiQue is the primary graded-scoring dataset. Optional so existing
     # configs without a `musique` block still validate.
     musique: SamplingDatasetConfig | None = None
+    # Specificity pivot: AmbigQA. Optional for the same reason.
+    ambigqa: AmbigQASamplingConfig | None = None
 
 
 class LadderConfig(_Frozen):
@@ -138,6 +153,13 @@ class HSemConfig(_Frozen):
     cluster_on: Literal["answer", "response"] = "answer"
 
 
+class SpecificityConfig(_Frozen):
+    """AmbigQA specificity manipulation (pivot spec §9). v1: two levels."""
+
+    levels: list[int] = Field(default_factory=lambda: [0, 1])
+    target_seed: int = 42              # deterministic target-interpretation choice
+
+
 class BootstrapConfig(_Frozen):
     n_iterations: int
     confidence: float
@@ -182,6 +204,8 @@ class Config(_Frozen):
     # v6 token budgets. Optional with all-default fields so configs without a
     # `generation` block still validate.
     generation: GenerationConfig = Field(default_factory=GenerationConfig)
+    # Specificity pivot: optional so pre-pivot configs still validate.
+    specificity: SpecificityConfig | None = None
     h_sem: HSemConfig
     bootstrap: BootstrapConfig
     embedding: EmbeddingConfig
