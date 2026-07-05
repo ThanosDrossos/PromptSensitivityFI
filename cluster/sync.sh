@@ -123,13 +123,16 @@ pull_tar() {
   # chain before tar even ran ("nothing pulled yet" despite parquets existing —
   # the 2026-07-04 bug); with `;` we ignore ls's status and gate on the captured
   # list being non-empty instead.
-  $SSH_CMD "$REMOTE" "cd '$REMOTE_DIR' 2>/dev/null || exit 1; items=\$(ls -d cluster_logs data/*.parquet data/*.md data/plots 2>/dev/null); [ -n \"\$items\" ] || exit 1; tar czf - \$items" \
+  # --ignore-failed-read: a file the remote FS cannot read (stripe damage from a
+  # Lustre incident — e.g. the three June leftovers that failed 'Cannot stat' on
+  # every 2026-07-06 pull) is SKIPPED with a warning instead of failing the whole
+  # archive's exit status. Everything readable still transfers.
+  $SSH_CMD "$REMOTE" "cd '$REMOTE_DIR' 2>/dev/null || exit 1; items=\$(ls -d cluster_logs data/*.parquet data/*.md data/plots 2>/dev/null); [ -n \"\$items\" ] || exit 1; tar czf - --ignore-failed-read \$items" \
     | tar xzf - -C . 2>/dev/null \
-    && echo "   pulled cluster_logs + data/*.parquet + data/*.md + data/plots (whatever existed)" \
-    || echo "   PULL FAILED — either the remote has none of cluster_logs / data/*.parquet /
-   data/*.md / data/plots, OR the transfer died mid-stream (tar errors above,
-   e.g. 'transport endpoint shutdown' = transient Lustre eviction -> just retry;
-   files extracted before the failure ARE on disk locally)."
+    && echo "   pulled cluster_logs + data/*.parquet + data/*.md + data/plots (any
+   'Cannot stat' warnings above = damaged remote files that were skipped)" \
+    || echo "   PULL FAILED — remote has none of cluster_logs / data/*.parquet /
+   data/*.md / data/plots, or the connection died before the stream started."
 }
 
 # ---- dispatch -------------------------------------------------------------
