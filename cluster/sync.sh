@@ -115,12 +115,18 @@ push_tar() {
 
 pull_tar() {
   # ONE ssh connection (=> one OTP prompt) for everything: cluster_logs + every
-  # data/*.parquet + data/plots, tarred remotely and streamed back. The old loop
-  # opened a fresh connection — and a fresh OTP+password prompt — per file.
-  $SSH_CMD "$REMOTE" "cd '$REMOTE_DIR' 2>/dev/null && items=\$(ls -d cluster_logs data/*.parquet data/*.md data/plots 2>/dev/null) && [ -n \"\$items\" ] && tar czf - \$items" \
+  # data/*.parquet + data/*.md + data/plots, tarred remotely and streamed back.
+  #
+  # NOTE the `;` after the items= assignment — it is load-bearing. The
+  # assignment's exit status is ls's, and `ls -d A B C` exits NON-ZERO when ANY
+  # glob has no match (e.g. no data/*.md yet). With `&&` that aborted the whole
+  # chain before tar even ran ("nothing pulled yet" despite parquets existing —
+  # the 2026-07-04 bug); with `;` we ignore ls's status and gate on the captured
+  # list being non-empty instead.
+  $SSH_CMD "$REMOTE" "cd '$REMOTE_DIR' 2>/dev/null || exit 1; items=\$(ls -d cluster_logs data/*.parquet data/*.md data/plots 2>/dev/null); [ -n \"\$items\" ] || exit 1; tar czf - \$items" \
     | tar xzf - -C . 2>/dev/null \
-    && echo "   pulled cluster_logs + data/*.parquet + data/plots (whatever existed)" \
-    || echo "   (nothing pulled yet — has the job written its parquet?)"
+    && echo "   pulled cluster_logs + data/*.parquet + data/*.md + data/plots (whatever existed)" \
+    || echo "   (nothing pulled — remote has none of cluster_logs / data/*.parquet / data/*.md / data/plots)"
 }
 
 # ---- dispatch -------------------------------------------------------------
