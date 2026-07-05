@@ -126,7 +126,10 @@ pull_tar() {
   $SSH_CMD "$REMOTE" "cd '$REMOTE_DIR' 2>/dev/null || exit 1; items=\$(ls -d cluster_logs data/*.parquet data/*.md data/plots 2>/dev/null); [ -n \"\$items\" ] || exit 1; tar czf - \$items" \
     | tar xzf - -C . 2>/dev/null \
     && echo "   pulled cluster_logs + data/*.parquet + data/*.md + data/plots (whatever existed)" \
-    || echo "   (nothing pulled — remote has none of cluster_logs / data/*.parquet / data/*.md / data/plots)"
+    || echo "   PULL FAILED — either the remote has none of cluster_logs / data/*.parquet /
+   data/*.md / data/plots, OR the transfer died mid-stream (tar errors above,
+   e.g. 'transport endpoint shutdown' = transient Lustre eviction -> just retry;
+   files extracted before the failure ARE on disk locally)."
 }
 
 # ---- dispatch -------------------------------------------------------------
