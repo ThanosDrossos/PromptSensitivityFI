@@ -39,6 +39,7 @@ from ..models.registry import get_client
 from ..scoring.nli_with_gold import f_score_batch_multi_gold
 from ..specificity.build_levels import SpecRow, build_spec_levels
 from .e2e_smoke import _assemble_messages, _checkpoint, _clustering_inputs, _sample_response
+from .local_check import _free_vram
 
 
 _AMBIGQA_PARAPHRASE_PARQUET = "data/paraphrases_ambigqa.parquet"
@@ -344,6 +345,16 @@ def main() -> int:
 
     # --- paraphrase universes (per question x level) -------------------------
     paraphrases = _generate_spec_paraphrases(config, rows, args.max_paraphrases)
+
+    # Free the generator's VRAM before the eval model loads (job 5762430
+    # post-mortem): the Phi-4 generator/judge (28 GiB bf16) stayed resident after
+    # prep, and Phi-4 + Qwen (~15 GiB) exceed the 40 GB A100 on gpu_a100_short ->
+    # CUDA OOM in every cell. The MuSiQue flow dodged this structurally (prep ran
+    # as a separate job); this driver runs both phases in one process, so it must
+    # drop the weights explicitly. DeBERTa (~1.6 GB, needed again for scoring +
+    # clustering) lives in a different cache and survives. No-op when the
+    # universes came from the parquet cache and no generator was ever loaded.
+    _free_vram()
 
     # --- cells with per-cell checkpoint + resume ------------------------------
     out_path = repo_root / args.out

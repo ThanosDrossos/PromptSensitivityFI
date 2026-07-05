@@ -2,10 +2,14 @@
 # Specificity-pivot verification gate (pivot spec §11) on gpu_a100_short.
 #
 # ~5 AmbigQA questions x 2 spec levels x qwen, --max-paraphrases 6 --k-samples 3.
-# The Phi-4 paraphrase prep for 10 universes is the slow part (~3-4 min each), so
-# the whole gate may exceed the 30-min cap on the FIRST submission. That is fine:
-# the paraphrase parquet AND the per-cell checkpoint persist, so simply
+# The Phi-4 paraphrase prep for 10 universes is the slow part (~17 min measured),
+# so the whole gate may exceed the 30-min cap on the FIRST submission. That is
+# fine: the paraphrase parquet AND the per-cell checkpoint persist, so simply
 # RESUBMIT — the second run skips finished work and completes in minutes.
+#
+# VRAM note (job 5762430 post-mortem): gpu_a100_short cards are 40 GB. The
+# driver frees the Phi-4 generator (28 GiB) via _free_vram() before loading the
+# eval model — without that, Phi-4 + Qwen OOM'd every cell on this partition.
 #
 #   sbatch cluster/smoke_specificity.sbatch      # (resubmit once if it times out)
 #   squeue --me
