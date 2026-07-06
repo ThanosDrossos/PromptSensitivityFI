@@ -107,7 +107,10 @@ def _generate_spec_paraphrases(
     if parquet_path.exists():
         try:
             prev = pd.read_parquet(parquet_path)
-            prev = prev[prev["outcome"] == "accepted"]
+            # singleton_fallback rows count as cached too — a universe that
+            # legitimately yielded nothing must not be re-attempted every resume
+            # (each retry costs a full Phi-4 pipeline pass).
+            prev = prev[prev["outcome"].isin(["accepted", "singleton_fallback"])]
             for (qid, lvl), sub in prev.groupby(["question_id", "spec_level"]):
                 persisted[(str(qid), int(lvl))] = (
                     sub.sort_values("paraphrase_idx")["text"].tolist()
@@ -117,14 +120,16 @@ def _generate_spec_paraphrases(
             logger.warning("could not read {} ({}); regenerating", parquet_path, exc)
 
     out: dict[tuple[str, int], list[str]] = {}
-    new_rows: list[dict] = []
+    n_todo = sum(1 for r in rows if (r.question_id, r.spec_level) not in persisted)
+    n_gen = 0
     for row in rows:
         key = (row.question_id, row.spec_level)
         if key in persisted and persisted[key]:
             out[key] = persisted[key][:max_paraphrases]
-            logger.info("qid={} L{} paraphrases from cache ({})",
-                        row.question_id, row.spec_level, len(out[key]))
             continue
+        n_gen += 1
+        logger.info("paraphrase universe {}/{}: qid={} L{}",
+                    n_gen, n_todo, row.question_id, row.spec_level)
         try:
             pset = build_paraphrase_set(
                 f"{row.question_id}::L{row.spec_level}",
@@ -133,32 +138,45 @@ def _generate_spec_paraphrases(
                 gold_answer=row.target_answers[0],
             )
             texts = [ap.text for ap in pset.accepted][:max_paraphrases]
-            for idx, text in enumerate(texts):
-                new_rows.append({
-                    "question_id": row.question_id, "spec_level": row.spec_level,
-                    "outcome": "accepted", "paraphrase_idx": idx, "text": text,
-                })
+            outcome = "accepted"
         except Exception as exc:  # noqa: BLE001
             logger.warning("paraphrase gen failed for {} L{}: {}",
                            row.question_id, row.spec_level, exc)
             texts = []
+            outcome = "accepted"
         if not texts:
             logger.warning("qid={} L{} no paraphrases; singleton fallback",
                            row.question_id, row.spec_level)
             texts = [row.question_text]
+            outcome = "singleton_fallback"
         out[key] = texts
-
-    if new_rows:
-        df_new = pd.DataFrame(new_rows)
-        if parquet_path.exists():
-            try:
-                df_new = pd.concat([pd.read_parquet(parquet_path), df_new], ignore_index=True)
-            except Exception:  # noqa: BLE001
-                pass
-        parquet_path.parent.mkdir(parents=True, exist_ok=True)
-        df_new.to_parquet(parquet_path, index=False)
-        logger.info("persisted {} new AmbigQA paraphrase rows -> {}", len(new_rows), parquet_path)
+        # Persist THIS universe immediately (atomic replace) so a walltime kill
+        # mid-prep loses at most the universe in flight — required for the
+        # 30-min gpu_a100_short singleton-chain to make monotonic progress.
+        _append_paraphrase_rows(parquet_path, [
+            {"question_id": row.question_id, "spec_level": row.spec_level,
+             "outcome": outcome, "paraphrase_idx": idx, "text": text}
+            for idx, text in enumerate(texts)
+        ])
+    if n_gen:
+        logger.info("generated + persisted {} new universes -> {}", n_gen, parquet_path)
     return out
+
+
+def _append_paraphrase_rows(parquet_path, rows_new: list[dict]) -> None:
+    """Append rows to the paraphrase cache with an atomic replace."""
+    import os
+
+    df_new = pd.DataFrame(rows_new)
+    if parquet_path.exists():
+        try:
+            df_new = pd.concat([pd.read_parquet(parquet_path), df_new], ignore_index=True)
+        except Exception:  # noqa: BLE001
+            pass
+    parquet_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = parquet_path.with_suffix(parquet_path.suffix + ".tmp")
+    df_new.to_parquet(tmp, index=False)
+    os.replace(tmp, parquet_path)
 
 
 # --------------------------------------------------------------------------- #
@@ -174,9 +192,11 @@ def _run_spec_cell(
     *,
     k_samples: int,
     fast: bool,
-) -> dict:
-    """One (SpecRow, model) cell -> flat result row. Mirrors the e2e binary
-    (non-CoT) path but scores with the multi-gold OR and attaches FI_spec."""
+    inspect: bool = False,
+) -> tuple[dict, dict | None]:
+    """One (SpecRow, model) cell -> (flat result row, inspection record | None).
+    Mirrors the e2e binary (non-CoT) path but scores with the multi-gold OR and
+    attaches FI_spec."""
     model_entry = config.models[model_key]
     client = get_client(model_key, config)
     view = _SpecQuestionView(row)
@@ -263,7 +283,34 @@ def _run_spec_cell(
     row_dict["dataset"] = "ambigqa"
     row_dict["question_text"] = row.question_text
     row_dict["f_mean_permissive"] = float(np.mean(f_scores_perm)) if f_scores_perm else None
-    return row_dict
+
+    # Inspection capture (per-run audit deliverable): everything needed to check
+    # this cell start->finish by hand. H_sem is summarised (distinct clusters +
+    # one representative answer per cluster) rather than dumped in full.
+    inspect_rec: dict | None = None
+    if inspect:
+        hsem_summary = None
+        if not fast and cluster_assignments:
+            reps: dict[int, str] = {}
+            for i, assigns in cluster_assignments.items():
+                for s_idx, cl in enumerate(assigns):
+                    reps.setdefault(int(cl), responses_per_paraphrase[i][s_idx][:80])
+            hsem_summary = {"k": k_samples, "n_clusters": len(reps), "representatives": reps}
+        inspect_rec = {
+            "question_id": row.question_id, "spec_level": row.spec_level,
+            "question_text": row.question_text, "target_answers": list(row.target_answers),
+            "m0": row.m0, "m_valid": row.m_valid, "target_idx": row.target_idx,
+            "model_key": model_key,
+            "paraphrases": [
+                {"idx": i, "paraphrase": p, "answer_t0": f_responses[i][:200],
+                 "f": f_scores[i]}
+                for i, p in enumerate(paraphrases)
+            ],
+            "hsem": hsem_summary,
+            "metrics": {k: row_dict.get(k) for k in
+                        ("f_mean", "aufi_in", "fi_out_mean", "h_sem_mean", "a_q", "fi_spec")},
+        }
+    return row_dict, inspect_rec
 
 
 def _cell_key(qid, spec_level, model_key) -> tuple:
@@ -286,6 +333,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--fast", action="store_true",
                         help="skip H_sem sampling/clustering/embeddings "
                              "(FI_in + accuracy + FI_spec only)")
+    parser.add_argument("--inspect-n", type=int, default=0,
+                        help="write a start->finish audit bundle for the first N "
+                             "questions (both levels) to data/inspect_<out-stem>.md")
     parser.add_argument("--out", type=str, default="data/specificity_metrics.parquet")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -374,6 +424,8 @@ def main() -> int:
             logger.warning("could not read {} for resume ({}); starting fresh", out_path, exc)
             rows_out, done = [], set()
 
+    inspect_qids = {q.id for q in questions[: args.inspect_n]} if args.inspect_n > 0 else set()
+    inspect_recs: list[dict] = []
     n_done = n_failed = n_skipped = 0
     for row in rows:
         for model_key in models:
@@ -383,10 +435,11 @@ def main() -> int:
                 continue
             t0 = time.perf_counter()
             try:
-                row_dict = _run_spec_cell(
+                row_dict, inspect_rec = _run_spec_cell(
                     config, row, model_key,
                     paraphrases[(row.question_id, row.spec_level)],
                     k_samples=k_samples, fast=args.fast,
+                    inspect=row.question_id in inspect_qids,
                 )
             except Exception:  # noqa: BLE001 — isolate cell failures
                 n_failed += 1
@@ -394,6 +447,8 @@ def main() -> int:
                                  row.question_id, row.spec_level, model_key)
                 continue
             rows_out.append(row_dict)
+            if inspect_rec is not None:
+                inspect_recs.append(inspect_rec)
             done.add(key)
             n_done += 1
             logger.info("cell {} done in {:.1f}s — qid={} L{} model={}",
@@ -406,8 +461,57 @@ def main() -> int:
     if not rows_out:
         logger.error("no cells produced")
         return 1
+    if inspect_recs:
+        insp = out_path.parent / f"inspect_{out_path.stem}.md"
+        insp.write_text(_render_spec_inspection_md(inspect_recs), encoding="utf-8")
+        logger.info("inspection bundle: {} cell(s) -> {}", len(inspect_recs), insp)
     _print_summary(pd.DataFrame(rows_out))
     return 0 if n_failed == 0 else 2
+
+
+def _render_spec_inspection_md(records: list[dict]) -> str:
+    """Human-readable start->finish audit for the inspected questions: ambiguous
+    vs disambiguated text, the fixed gold, every paraphrase with the model's T=0
+    answer and its F, an H_sem cluster summary, and the cell metrics."""
+    def t(s, n: int = 110) -> str:
+        s = " ".join(str(s).split()).replace("|", "\\|")
+        return s if len(s) <= n else s[:n] + "…"
+
+    by_q: dict[str, list[dict]] = {}
+    for r in records:
+        by_q.setdefault(r["question_id"], []).append(r)
+
+    out = ["# Specificity run — inspection bundle", "",
+           f"{len(by_q)} question(s), {len(records)} cell(s). Gold is FIXED across "
+           "levels (the guardrail); level 0 = ambiguous, level 1 = disambiguated.", ""]
+    for qi, (qid, cells) in enumerate(by_q.items(), 1):
+        cells = sorted(cells, key=lambda c: c["spec_level"])
+        c0 = cells[0]
+        out += [f"## {qi}. `{qid}` — m0={c0['m0']}, target_idx={c0['target_idx']}, "
+                f"model `{c0['model_key']}`",
+                f"**Fixed gold (a_i variants):** {', '.join(c0['target_answers'])}", ""]
+        for c in cells:
+            m = c["metrics"]
+            out += [f"### Level {c['spec_level']} — “{t(c['question_text'])}”",
+                    f"FI_spec={m['fi_spec']:.3f} · f_mean={_fmtf(m['f_mean'])} · "
+                    f"AUFI_in={_fmtf(m['aufi_in'])} · FI_out={_fmtf(m['fi_out_mean'])} · "
+                    f"H_sem={_fmtf(m['h_sem_mean'])} · |A_q|={m['a_q']}", "",
+                    "| # | paraphrase | model answer (T=0) | F |",
+                    "|--:|------------|--------------------|--:|"]
+            for p in c["paraphrases"]:
+                out.append(f"| {p['idx']} | {t(p['paraphrase'], 80)} | "
+                           f"{t(p['answer_t0'], 80)} | {p['f']:.0f} |")
+            out.append("")
+            if c["hsem"]:
+                h = c["hsem"]
+                reps = " · ".join(f"c{cl}: “{t(txt, 40)}”"
+                                  for cl, txt in sorted(h["representatives"].items())[:8])
+                out += [f"H_sem (k={h['k']}): {h['n_clusters']} clusters — {reps}", ""]
+    return "\n".join(out)
+
+
+def _fmtf(v) -> str:
+    return "—" if v is None else f"{v:.3f}"
 
 
 def _print_summary(df: pd.DataFrame) -> None:

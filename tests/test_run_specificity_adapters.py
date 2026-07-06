@@ -69,10 +69,10 @@ def test_main_frees_generator_vram_between_prep_and_eval(monkeypatch, tmp_path):
     monkeypatch.setattr(rs, "_free_vram", lambda: calls.append("free"))
     monkeypatch.setattr(
         rs, "_run_spec_cell",
-        lambda config, row, model_key, paras, **kw: (calls.append("cell"), {
+        lambda config, row, model_key, paras, **kw: (calls.append("cell"), ({
             "question_id": row.question_id, "spec_level": row.spec_level,
             "model_key": model_key, "f_mean": 1.0, "fi_spec": 0.0,
-        })[1],
+        }, None))[1],
     )
     monkeypatch.setattr(sys, "argv", [
         "run_specificity", "--n-questions", "1", "--models", "qwen_2_5_7b",
@@ -81,3 +81,73 @@ def test_main_frees_generator_vram_between_prep_and_eval(monkeypatch, tmp_path):
     assert rs.main() == 0
     assert calls[0] == "prep" and calls[1] == "free", f"order was {calls}"
     assert calls[2:] == ["cell", "cell"]          # 2 levels x 1 model
+
+
+def test_paraphrase_universes_persist_incrementally(monkeypatch, tmp_path):
+    """30-min singleton-chain requirement: each universe lands in the cache
+    parquet AS SOON as it is generated (walltime kill loses at most one), and
+    singleton fallbacks are cached too so they are never re-attempted."""
+    from prompt_sensitivity.config import load_config
+    from prompt_sensitivity.scripts import run_specificity as rs
+    from prompt_sensitivity.specificity.build_levels import SpecRow
+    import pandas as pd
+    import prompt_sensitivity.paraphrases.pipeline as pipeline_mod
+
+    cache = tmp_path / "para.parquet"
+    monkeypatch.setattr(rs, "_AMBIGQA_PARAPHRASE_PARQUET", str(cache))
+    rows = [
+        SpecRow(question_id="qA", spec_level=0, question_text="A?", target_answers=["a"],
+                m_valid=2, m0=2, target_idx=0),
+        SpecRow(question_id="qB", spec_level=0, question_text="B?", target_answers=["b"],
+                m_valid=2, m0=2, target_idx=0),
+    ]
+
+    class _PSet:
+        def __init__(self, texts):
+            self.accepted = [type("AP", (), {"text": t})() for t in texts]
+
+    snapshots: list[int] = []
+
+    def fake_build(qid, text, *, config=None, gold_answer=None):
+        # capture how many rows were ALREADY persisted when this universe starts
+        snapshots.append(len(pd.read_parquet(cache)) if cache.exists() else 0)
+        if text == "A?":
+            return _PSet(["A one?", "A two?"])
+        raise RuntimeError("generator exploded")      # qB -> singleton fallback
+
+    monkeypatch.setattr(pipeline_mod, "build_paraphrase_set", fake_build)
+    out = rs._generate_spec_paraphrases(load_config(), rows, max_paraphrases=10)
+
+    assert snapshots == [0, 2]                 # qA's 2 rows were on disk BEFORE qB ran
+    df = pd.read_parquet(cache)
+    assert len(df) == 3                        # 2 accepted + 1 singleton_fallback
+    assert set(df["outcome"]) == {"accepted", "singleton_fallback"}
+    assert out[("qB", 0)] == ["B?"]
+
+    # Second call: everything (incl. the fallback) served from cache — the
+    # generator must NOT run again.
+    def exploding_build(*a, **k):
+        raise AssertionError("generator must not be re-invoked on resume")
+
+    monkeypatch.setattr(pipeline_mod, "build_paraphrase_set", exploding_build)
+    out2 = rs._generate_spec_paraphrases(load_config(), rows, max_paraphrases=10)
+    assert out2[("qA", 0)] == ["A one?", "A two?"] and out2[("qB", 0)] == ["B?"]
+
+
+def test_spec_inspection_renderer_contains_every_step():
+    from prompt_sensitivity.scripts.run_specificity import _render_spec_inspection_md
+
+    rec = {
+        "question_id": "q1", "spec_level": 1, "question_text": "What party took control?",
+        "target_answers": ["National Fascist Party", "Fascists"],
+        "m0": 3, "m_valid": 1, "target_idx": 0, "model_key": "qwen_2_5_7b",
+        "paraphrases": [{"idx": 0, "paraphrase": "Which party seized power?",
+                         "answer_t0": "The National Fascist Party", "f": 1.0}],
+        "hsem": {"k": 10, "n_clusters": 1, "representatives": {0: "The National Fascist Party"}},
+        "metrics": {"f_mean": 1.0, "aufi_in": 0.0, "fi_out_mean": 0.0,
+                    "h_sem_mean": 0.0, "a_q": 1, "fi_spec": 1.585},
+    }
+    md = _render_spec_inspection_md([rec])
+    for needle in ["inspection bundle", "Fixed gold", "National Fascist Party",
+                   "Which party seized power?", "FI_spec=1.585", "H_sem (k=10): 1 clusters"]:
+        assert needle in md, f"missing {needle!r}"
