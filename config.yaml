@@ -1,6 +1,6 @@
 # PromptSensitivityFI — versioned config. See Research_Design_v3 §7 / §9.
 # Bump `config_version` whenever a value changes; experiments are keyed on it.
-config_version: 5
+config_version: 6
 random_seed: 42
 
 # §2.4 — sample sizes per dataset.
@@ -32,17 +32,23 @@ sampling:
   # axis is question specificity (ambiguous -> disambiguated), closed-book.
   ambigqa:
     hf_dataset: "ambig_qa"
-    hf_config: "light"
+    hf_config: "full"            # v2: `full` carries used_queries (evidence snippets)
     split: validation            # test split is not public
     n_questions: 50
     min_interpretations: 2       # only genuinely ambiguous (multipleQAs) records
     include_single_answer_anchor: false
 
-# Specificity manipulation (pivot spec §9). v1: level 0 = ambiguous question,
-# level 1 = disambiguated target interpretation; gold fixed across both.
+# Specificity manipulation (pivot spec §9; v2 amendment 2026-07-06). Level 0 =
+# ambiguous question, level 1 = disambiguated target; gold fixed across both.
+# v2: uniform_evidence — the question's own annotator search snippets as context,
+# IDENTICAL across levels + paraphrases (answerability from reading, not recall;
+# fixes the v1 closed-book knowledge floor: 42/50 questions were 0->0).
 specificity:
   levels: [0, 1]
   target_seed: 42                # deterministic target-interpretation choice
+  context_mode: uniform_evidence # closed_book reproduces v1
+  evidence_max_chars: 6000       # whole snippets in dataset order up to the cap (p75≈6.3k)
+  require_target_in_evidence: true   # keep only questions whose bundle contains the target (52%)
 
 # §4 — three-ladder construction.
 ladders:

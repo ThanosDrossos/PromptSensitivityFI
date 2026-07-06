@@ -19,9 +19,9 @@ from __future__ import annotations
 
 import hashlib
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from ..data.ambigqa_schemas import AmbigQuestion
+from ..data.ambigqa_schemas import AmbigQuestion, EvidenceSnippet
 
 
 class SpecRow(BaseModel):
@@ -36,6 +36,10 @@ class SpecRow(BaseModel):
     m_valid: int                    # level 0 -> m0, level 1 -> 1
     m0: int
     target_idx: int                 # which interpretation was chosen as target
+    # v2 uniform-evidence: the SAME bundle at both levels and for every
+    # paraphrase (guardrail #2, next to the fixed gold) — specificity stays the
+    # only manipulated variable. Empty in closed-book mode / light config.
+    evidence: list[EvidenceSnippet] = Field(default_factory=list)
 
 
 def choose_target_idx(question_id: str, m0: int, *, seed: int) -> int:
@@ -46,7 +50,9 @@ def choose_target_idx(question_id: str, m0: int, *, seed: int) -> int:
     return int(digest, 16) % m0
 
 
-def build_spec_levels(q: AmbigQuestion, *, seed: int) -> list[SpecRow]:
+def build_spec_levels(
+    q: AmbigQuestion, *, seed: int, include_evidence: bool = True
+) -> list[SpecRow]:
     """[SpecRow(level 0), SpecRow(level 1)] for one AmbigQuestion."""
     m0 = q.m0()
     idx = choose_target_idx(q.id, m0, seed=seed)
@@ -56,6 +62,7 @@ def build_spec_levels(q: AmbigQuestion, *, seed: int) -> list[SpecRow]:
         target_answers=list(target.answers),
         m0=m0,
         target_idx=idx,
+        evidence=list(q.evidence) if include_evidence else [],
     )
     return [
         SpecRow(spec_level=0, question_text=q.question, m_valid=m0, **common),
@@ -66,3 +73,19 @@ def build_spec_levels(q: AmbigQuestion, *, seed: int) -> list[SpecRow]:
             **common,
         ),
     ]
+
+
+def target_in_evidence(q: AmbigQuestion, *, seed: int) -> bool:
+    """Evidence-coverage filter (v2): does the bundle contain the TARGET
+    interpretation's answer (any variant, case-insensitive containment)?
+
+    Dataset-side and model-free — unlike a model-based answerability pre-screen
+    it introduces no selection-on-model-knowledge bias. Verbatim containment is
+    a conservative lower bound for answerability-from-evidence (52% of the
+    ambiguous validation split passes; measured 2026-07-06).
+    """
+    bundle = q.evidence_text()
+    if not bundle:
+        return False
+    idx = choose_target_idx(q.id, q.m0(), seed=seed)
+    return any(a.lower() in bundle for a in q.interpretations[idx].answers)

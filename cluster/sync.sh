@@ -82,6 +82,8 @@ PULL_FILES=(
   data/paraphrases_ambigqa.parquet
   data/smoke_specificity.parquet
   data/specificity_metrics.parquet
+  data/smoke_specificity_v2.parquet
+  data/specificity_v2_metrics.parquet
   data/full_llama_3_1_8b.parquet
   data/full_mistral_7b_v03.parquet
   data/full_qwen_2_5_7b.parquet

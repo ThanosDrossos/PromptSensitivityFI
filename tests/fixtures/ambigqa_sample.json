@@ -24,6 +24,18 @@
           ]
         }
       ]
+    },
+    "used_queries": {
+      "query": ["Why did the st louis cardinals move to arizona?"],
+      "results": [
+        {
+          "title": ["History of the St. Louis Cardinals (NFL)", "Arizona Cardinals"],
+          "snippet": [
+            "Owners cited the <b>overall mediocrity of the Cardinals</b>, an <b>old stadium</b>,\nand <b>game attendance to dwindle</b>&nbsp;as reasons&#39; ...",
+            "The club then <b>moved</b> to <b>St</b>. <b>Louis</b> in 1960 and played there through 1987&quot; ..."
+          ]
+        }
+      ]
     }
   },
   {
@@ -51,6 +63,15 @@
           {"question": "What ability caused the st louis cardinals move to arizona?", "answer": ["overall mediocrity of the Cardinals"]},
           {"question": "What physical issue caused the st louis cardinals move to arizona?", "answer": ["old stadium"]},
           {"question": "What fan issue caused the st louis cardinals move to arizona?", "answer": ["game attendance to dwindle"]}
+        ]
+      }
+    ],
+    "used_queries": [
+      {
+        "query": "Why did the st louis cardinals move to arizona?",
+        "results": [
+          {"title": "History of the St. Louis Cardinals (NFL)", "snippet": "Owners cited the <b>overall mediocrity of the Cardinals</b>, an <b>old stadium</b>,\nand <b>game attendance to dwindle</b>&nbsp;as reasons&#39; ..."},
+          {"title": "Arizona Cardinals", "snippet": "The club then <b>moved</b> to <b>St</b>. <b>Louis</b> in 1960 and played there through 1987&quot; ..."}
         ]
       }
     ]

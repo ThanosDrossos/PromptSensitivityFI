@@ -1,5 +1,8 @@
 #!/bin/bash
-# Full v1 specificity run (AmbigQA pivot): 50 questions x 2 levels x qwen,
+# Full v2 specificity run (AmbigQA pivot, UNIFORM-EVIDENCE design): 50 questions
+# x 2 levels x qwen — every cell gets the question's own annotator-search snippets
+# as an identical context block; answerability from reading, not recall.
+# Original header:
 # k=10, 10 paraphrases/universe, inspection bundle for the first 5 questions.
 #
 # DESIGN — singleton chain on gpu_a100_short: this job is submitted MANY times
@@ -37,15 +40,15 @@ export TOKENIZERS_PARALLELISM=false
 
 nvidia-smi | head -12 || true
 
-echo "=== specificity v1 full: 50 q x 2 levels x qwen (k=10, N=10, inspect 5) ==="
+echo "=== specificity v2 full (uniform evidence): 50 q x 2 levels x qwen (k=10, N=10, inspect 5) ==="
 python -m prompt_sensitivity.scripts.run_specificity \
   --n-questions 50 --models qwen_2_5_7b \
   --k-samples 10 --max-paraphrases 10 --inspect-n 5 \
-  --out data/specificity_metrics.parquet \
-  2>&1 | tee -a cluster_logs/spec_full.log
+  --out data/specificity_v2_metrics.parquet \
+  2>&1 | tee -a cluster_logs/spec_full_v2.log
 
 echo "=== level pivot ==="
 python -m prompt_sensitivity.scripts.show_specificity \
-  --in data/specificity_metrics.parquet \
-  2>&1 | tee cluster_logs/show_specificity_full.log || true
+  --in data/specificity_v2_metrics.parquet \
+  2>&1 | tee cluster_logs/show_specificity_full_v2.log || true
 echo "WINDOW DONE $(date -Iseconds)"

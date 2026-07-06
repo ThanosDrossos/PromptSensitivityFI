@@ -26,11 +26,13 @@ dropped by default via `min_interpretations=2`, per the pivot spec §3.2).
 
 from __future__ import annotations
 
+import html
+import re
 from typing import Any
 
 from loguru import logger
 
-from .ambigqa_schemas import AmbigInterpretation, AmbigQuestion
+from .ambigqa_schemas import AmbigInterpretation, AmbigQuestion, EvidenceSnippet
 
 
 def _norm_answers(raw: Any) -> list[str]:
@@ -85,6 +87,48 @@ def _iter_annotations(annotations: Any):
             yield ann_type, single, pairs
 
 
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _clean_snippet(s: str) -> str:
+    """Google-search snippets are HTML-encoded (<b>, &#39;, &nbsp;, hard wraps)."""
+    return " ".join(_TAG_RE.sub("", html.unescape(s or "")).split())
+
+
+def _parse_evidence(record: dict) -> list[EvidenceSnippet]:
+    """`used_queries` -> cleaned, deduplicated (title, snippet) list. Both forms:
+
+    HF `full` (flattened): {query: [q...], results: [{title: [t...], snippet: [s...]}]}
+    GitHub release:        [{query: q, results: [{title: t, snippet: s}, ...]}, ...]
+
+    The `light` config has no used_queries at all -> [].
+    """
+    uq = record.get("used_queries")
+    out: list[EvidenceSnippet] = []
+    seen: set[str] = set()
+
+    def add(title: Any, snippet: Any) -> None:
+        c = _clean_snippet(snippet if isinstance(snippet, str) else "")
+        t = _clean_snippet(title if isinstance(title, str) else "")
+        if c and c not in seen:
+            seen.add(c)
+            out.append(EvidenceSnippet(title=t, snippet=c))
+
+    if isinstance(uq, dict):                      # HF flattened form
+        for res in uq.get("results") or []:
+            if isinstance(res, dict):
+                for t, s in zip(res.get("title") or [], res.get("snippet") or []):
+                    add(t, s)
+    elif isinstance(uq, list):                    # release form
+        for entry in uq:
+            if not isinstance(entry, dict):
+                continue
+            for res in entry.get("results") or []:
+                if isinstance(res, dict):
+                    add(res.get("title"), res.get("snippet"))
+    return out
+
+
 def parse_ambigqa_record(record: dict) -> AmbigQuestion | None:
     """One raw record (either form) -> AmbigQuestion, or None if unusable.
 
@@ -122,7 +166,10 @@ def parse_ambigqa_record(record: dict) -> AmbigQuestion | None:
         interps = [
             AmbigInterpretation(disambiguated_question=question, answers=single_fallback)
         ]
-    return AmbigQuestion(id=qid, question=question, interpretations=interps)
+    return AmbigQuestion(
+        id=qid, question=question, interpretations=interps,
+        evidence=_parse_evidence(record),
+    )
 
 
 def accepts(

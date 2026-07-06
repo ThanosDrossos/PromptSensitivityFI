@@ -1,5 +1,10 @@
 #!/bin/bash
-# Specificity-pivot verification gate (pivot spec §11) on gpu_a100_short.
+# Specificity-pivot verification gate (pivot spec §11; v2 uniform-evidence) on gpu_a100_short.
+#
+# v2: cells now carry the question's own AmbigNQ evidence snippets as a UNIFORM
+# context block (config.specificity.context_mode). New question set (evidence-
+# coverage filter) => fresh Phi-4 paraphrase prep on first submission; resubmit
+# on timeout as before.
 #
 # ~5 AmbigQA questions x 2 spec levels x qwen, --max-paraphrases 6 --k-samples 3.
 # The Phi-4 paraphrase prep for 10 universes is the slow part (~17 min measured),
@@ -50,6 +55,6 @@ python -m prompt_sensitivity.scripts.smoke_specificity \
   2>&1 | tee cluster_logs/smoke_specificity.log
 
 echo "=== level pivot ==="
-python -m prompt_sensitivity.scripts.show_specificity --in data/smoke_specificity.parquet \
+python -m prompt_sensitivity.scripts.show_specificity --in data/smoke_specificity_v2.parquet \
   2>&1 | tee cluster_logs/show_specificity.log || true
 echo "DONE $(date -Iseconds)"

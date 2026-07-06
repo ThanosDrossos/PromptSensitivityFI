@@ -154,10 +154,20 @@ class HSemConfig(_Frozen):
 
 
 class SpecificityConfig(_Frozen):
-    """AmbigQA specificity manipulation (pivot spec §9). v1: two levels."""
+    """AmbigQA specificity manipulation (pivot spec §9; v2 amendment 2026-07-06).
+
+    v2: `uniform_evidence` — every cell gets the question's own AmbigNQ
+    `used_queries` snippet bundle as context, IDENTICAL across both specificity
+    levels and all paraphrases, so specificity stays the only manipulated
+    variable while answerability comes from READING, not parametric recall
+    (kills the v1 closed-book knowledge floor). `closed_book` reproduces v1.
+    """
 
     levels: list[int] = Field(default_factory=lambda: [0, 1])
     target_seed: int = 42              # deterministic target-interpretation choice
+    context_mode: Literal["closed_book", "uniform_evidence"] = "uniform_evidence"
+    evidence_max_chars: int = 6000     # cap the bundle (whole snippets, dataset order)
+    require_target_in_evidence: bool = True   # v2 filter (dataset-side, model-free)
 
 
 class BootstrapConfig(_Frozen):

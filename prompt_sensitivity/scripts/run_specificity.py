@@ -37,7 +37,8 @@ from ..metrics.h_sem import cluster_responses_pooled
 from ..models.embedding import encode_texts
 from ..models.registry import get_client
 from ..scoring.nli_with_gold import f_score_batch_multi_gold
-from ..specificity.build_levels import SpecRow, build_spec_levels
+from ..data.schemas import HotpotParagraph
+from ..specificity.build_levels import SpecRow, build_spec_levels, target_in_evidence
 from .e2e_smoke import _assemble_messages, _checkpoint, _clustering_inputs, _sample_response
 from .local_check import _free_vram
 
@@ -52,17 +53,19 @@ _AMBIGQA_PARAPHRASE_PARQUET = "data/paraphrases_ambigqa.parquet"
 
 class _SpecQuestionView:
     """Duck-typed stand-in for MultiHopQuestion, restricted to what the reused
-    cell helpers touch on the closed-book path. MultiHopQuestion itself is NOT
-    changed (scope guard §12): its validators demand paragraphs, which the
-    specificity cells deliberately do not have.
+    cell helpers touch. MultiHopQuestion itself is NOT changed (scope guard §12).
+
+    v2: `paragraphs` carries the question's evidence snippets wrapped as
+    HotpotParagraph, so the EXISTING context-block prompt path renders them;
+    closed-book mode passes an empty list (v1 behaviour).
     """
 
-    def __init__(self, row: SpecRow) -> None:
+    def __init__(self, row: SpecRow, paragraphs: list | None = None) -> None:
         self.id = row.question_id
         self.dataset = "ambigqa"
         self.question = row.question_text
         self.answer = row.target_answers[0]   # primary gold (multi-gold OR in scoring)
-        self.paragraphs: list = []            # closed book
+        self.paragraphs: list = paragraphs or []
         self.question_decomposition: list = []
         self.n_hops = None
 
@@ -70,15 +73,33 @@ class _SpecQuestionView:
         return False
 
 
-def _ladder_row_for(row: SpecRow) -> LadderRow:
-    """Minimal context-family LadderRow with NO paragraphs => closed-book prompt."""
+def _evidence_paragraphs(row: SpecRow, max_chars: int) -> list[HotpotParagraph]:
+    """Wrap the row's evidence snippets as context paragraphs.
+
+    Whole snippets in dataset order until the char cap (median bundle ~4.8k,
+    p75 ~6.3k). The SAME list is used at both levels and for every paraphrase —
+    the v2 uniformity guardrail.
+    """
+    out: list[HotpotParagraph] = []
+    used = 0
+    for ev in row.evidence:
+        n = len(ev.title) + len(ev.snippet)
+        if out and used + n > max_chars:
+            break
+        out.append(HotpotParagraph(title=ev.title, sentences=[ev.snippet]))
+        used += n
+    return out
+
+
+def _ladder_row_for(row: SpecRow, n_paragraphs: int = 0) -> LadderRow:
+    """Context-family LadderRow over the (possibly empty) evidence block."""
     return LadderRow(
         question_id=row.question_id,
         ladder_type="random",
         ladder_family="context",
         level_idx=row.spec_level,
         level=row.spec_level,
-        paragraph_indices=[],
+        paragraph_indices=list(range(n_paragraphs)),
         paragraph_titles=[],
         gold_count=0,
     )
@@ -193,18 +214,24 @@ def _run_spec_cell(
     k_samples: int,
     fast: bool,
     inspect: bool = False,
+    context_mode: str = "uniform_evidence",
+    evidence_max_chars: int = 6000,
 ) -> tuple[dict, dict | None]:
     """One (SpecRow, model) cell -> (flat result row, inspection record | None).
     Mirrors the e2e binary (non-CoT) path but scores with the multi-gold OR and
-    attaches FI_spec."""
+    attaches FI_spec. v2: uniform evidence block unless context_mode=closed_book."""
     model_entry = config.models[model_key]
     client = get_client(model_key, config)
-    view = _SpecQuestionView(row)
-    lrow = _ladder_row_for(row)
+    ev_paragraphs = (
+        _evidence_paragraphs(row, evidence_max_chars)
+        if context_mode == "uniform_evidence" else []
+    )
+    view = _SpecQuestionView(row, paragraphs=ev_paragraphs)
+    lrow = _ladder_row_for(row, n_paragraphs=len(ev_paragraphs))
     gen_max = config.generation.answer_max_tokens
-    logger.info("cell qid={} spec_level={} model={} N={} m0={} m_valid={}",
+    logger.info("cell qid={} spec_level={} model={} N={} m0={} m_valid={} evidence={}snip",
                 row.question_id, row.spec_level, model_key,
-                len(paraphrases), row.m0, row.m_valid)
+                len(paraphrases), row.m0, row.m_valid, len(ev_paragraphs))
 
     prompt_messages = [
         _assemble_messages(view, p, lrow, use_cot=False) for p in paraphrases
@@ -283,6 +310,8 @@ def _run_spec_cell(
     row_dict["dataset"] = "ambigqa"
     row_dict["question_text"] = row.question_text
     row_dict["f_mean_permissive"] = float(np.mean(f_scores_perm)) if f_scores_perm else None
+    row_dict["context_mode"] = context_mode
+    row_dict["n_evidence_snippets"] = len(ev_paragraphs)
 
     # Inspection capture (per-run audit deliverable): everything needed to check
     # this cell start->finish by hand. H_sem is summarised (distinct clusters +
@@ -301,6 +330,9 @@ def _run_spec_cell(
             "question_text": row.question_text, "target_answers": list(row.target_answers),
             "m0": row.m0, "m_valid": row.m_valid, "target_idx": row.target_idx,
             "model_key": model_key,
+            "context_mode": context_mode,
+            "evidence": [f"{p.title}: {p.sentences[0][:120]}" for p in ev_paragraphs[:4]],
+            "n_evidence": len(ev_paragraphs),
             "paraphrases": [
                 {"idx": i, "paraphrase": p, "answer_t0": f_responses[i][:200],
                  "f": f_scores[i]}
@@ -336,6 +368,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--inspect-n", type=int, default=0,
                         help="write a start->finish audit bundle for the first N "
                              "questions (both levels) to data/inspect_<out-stem>.md")
+    parser.add_argument("--context-mode", choices=["closed_book", "uniform_evidence"],
+                        default=None,
+                        help="override config.specificity.context_mode "
+                             "(closed_book reproduces the v1 design)")
     parser.add_argument("--out", type=str, default="data/specificity_metrics.parquet")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -363,21 +399,43 @@ def main() -> int:
     if not args.fast and k_samples < 5:
         logger.warning("H_sem k={} (<5): near-zero semantic-entropy resolution", k_samples)
 
+    # --- context mode (v2: uniform evidence) --------------------------------
+    context_mode = args.context_mode or (
+        spec_cfg.context_mode if spec_cfg is not None else "uniform_evidence"
+    )
+    evidence_max_chars = spec_cfg.evidence_max_chars if spec_cfg is not None else 6000
+    require_cov = (
+        context_mode == "uniform_evidence"
+        and (spec_cfg.require_target_in_evidence if spec_cfg is not None else True)
+    )
+
     # --- questions -> spec rows ---------------------------------------------
-    questions: list[AmbigQuestion] = [
+    ambiguous = [
         q for q in load_ambigqa(
             hf_dataset=acfg.hf_dataset, hf_config=acfg.hf_config, split=acfg.split,
             min_interpretations=acfg.min_interpretations,
             include_single_answer_anchor=acfg.include_single_answer_anchor,
         )
         if q.is_ambiguous()
-    ][:n_questions]
+    ]
+    if require_cov:
+        # v2 evidence-coverage filter: dataset-side + model-free (no selection on
+        # model knowledge). ~52% of the ambiguous split passes.
+        n_before = len(ambiguous)
+        ambiguous = [q for q in ambiguous if target_in_evidence(q, seed=target_seed)]
+        logger.info("evidence-coverage filter: {} -> {} questions (target answer in bundle)",
+                    n_before, len(ambiguous))
+    questions: list[AmbigQuestion] = ambiguous[:n_questions]
     if not questions:
-        logger.error("no ambiguous AmbigQA questions loaded; bailing")
+        logger.error("no AmbigQA questions left after filtering; bailing")
         return 1
     rows: list[SpecRow] = []
     for q in questions:
-        rows.extend(build_spec_levels(q, seed=target_seed))
+        rows.extend(build_spec_levels(
+            q, seed=target_seed,
+            include_evidence=context_mode == "uniform_evidence",
+        ))
+    logger.info("context_mode={} (evidence cap {} chars)", context_mode, evidence_max_chars)
 
     n_cells = len(rows) * len(models)
     per_cell_calls = args.max_paraphrases * (1 + (0 if args.fast else k_samples))
@@ -390,6 +448,8 @@ def main() -> int:
             "estimated_llm_calls": n_cells * per_cell_calls,
             "models": models, "levels": sorted({r.spec_level for r in rows}),
             "m0_values": sorted({r.m0 for r in rows}),
+            "context_mode": context_mode,
+            "evidence_snippets_median": float(np.median([len(r.evidence) for r in rows])),
         }, indent=2))
         return 0
 
@@ -440,6 +500,8 @@ def main() -> int:
                     paraphrases[(row.question_id, row.spec_level)],
                     k_samples=k_samples, fast=args.fast,
                     inspect=row.question_id in inspect_qids,
+                    context_mode=context_mode,
+                    evidence_max_chars=evidence_max_chars,
                 )
             except Exception:  # noqa: BLE001 — isolate cell failures
                 n_failed += 1
@@ -490,6 +552,11 @@ def _render_spec_inspection_md(records: list[dict]) -> str:
         out += [f"## {qi}. `{qid}` — m0={c0['m0']}, target_idx={c0['target_idx']}, "
                 f"model `{c0['model_key']}`",
                 f"**Fixed gold (a_i variants):** {', '.join(c0['target_answers'])}", ""]
+        if c0.get("n_evidence"):
+            out.append(f"**Uniform evidence** ({c0['n_evidence']} snippets, identical for "
+                       "both levels & all paraphrases); first entries:")
+            out += [f"- {t(e, 130)}" for e in c0.get("evidence", [])]
+            out.append("")
         for c in cells:
             m = c["metrics"]
             out += [f"### Level {c['spec_level']} — “{t(c['question_text'])}”",

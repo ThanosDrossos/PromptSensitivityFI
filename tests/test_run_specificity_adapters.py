@@ -49,7 +49,11 @@ def test_main_frees_generator_vram_between_prep_and_eval(monkeypatch, tmp_path):
     main() must call _free_vram AFTER the prep and BEFORE the first cell."""
     import sys
 
-    from prompt_sensitivity.data.ambigqa_schemas import AmbigInterpretation, AmbigQuestion
+    from prompt_sensitivity.data.ambigqa_schemas import (
+        AmbigInterpretation,
+        AmbigQuestion,
+        EvidenceSnippet,
+    )
     from prompt_sensitivity.scripts import run_specificity as rs
 
     calls: list[str] = []
@@ -59,6 +63,9 @@ def test_main_frees_generator_vram_between_prep_and_eval(monkeypatch, tmp_path):
             AmbigInterpretation(disambiguated_question=f"Variant {i}?", answers=[f"a{i}"])
             for i in range(2)
         ],
+        # v2: the default config requires the target answer in the evidence
+        # bundle; cover both possible targets so the question survives the filter.
+        evidence=[EvidenceSnippet(title="t", snippet="a0 and a1 are both discussed here")],
     )
     monkeypatch.setattr(rs, "load_ambigqa", lambda **kw: [q])
     monkeypatch.setattr(

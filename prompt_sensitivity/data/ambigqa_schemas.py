@@ -23,6 +23,17 @@ class AmbigInterpretation(BaseModel):
     answers: list[str] = Field(min_length=1)    # accepted answer variants for a_i
 
 
+class EvidenceSnippet(BaseModel):
+    """One cleaned search-result snippet the AmbigNQ annotators saw (`full` config
+    `used_queries`) — the evidence through which the ambiguity was discovered.
+    Used by the v2 uniform-evidence design as the (fixed) context block."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str
+    snippet: str                                # HTML-stripped, whitespace-collapsed
+
+
 class AmbigQuestion(BaseModel):
     """One AmbigQA record: the original (ambiguous) question + interpretations."""
 
@@ -32,6 +43,9 @@ class AmbigQuestion(BaseModel):
     dataset: Literal["ambigqa"] = "ambigqa"
     question: str                               # the original (ambiguous) question
     interpretations: list[AmbigInterpretation] = Field(min_length=1)
+    # v2 uniform-evidence design: the annotators' search-result snippets (empty
+    # when loaded from the `light` config, which has no used_queries).
+    evidence: list[EvidenceSnippet] = Field(default_factory=list)
 
     def m0(self) -> int:
         """Number of valid interpretations — the ambiguity of the raw question."""
@@ -39,3 +53,7 @@ class AmbigQuestion(BaseModel):
 
     def is_ambiguous(self) -> bool:
         return self.m0() > 1
+
+    def evidence_text(self) -> str:
+        """Whole bundle, lowercased, for containment checks."""
+        return " ".join(f"{e.title} {e.snippet}" for e in self.evidence).lower()

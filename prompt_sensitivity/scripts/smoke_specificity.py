@@ -28,7 +28,9 @@ from loguru import logger
 from ..config import load_config
 from ..logging_setup import configure_logging
 
-_OUT = "data/smoke_specificity.parquet"
+# v2 (uniform evidence): separate file — the v1 closed-book gate rows share the
+# same resume keys and would otherwise be skipped instead of recomputed.
+_OUT = "data/smoke_specificity_v2.parquet"
 _REQUIRED = ["fi_spec", "spec_level", "m_valid", "f_mean", "aufi_in",
              "fi_out_mean", "h_sem_mean"]
 
