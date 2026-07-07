@@ -523,12 +523,45 @@ def main() -> int:
     if not rows_out:
         logger.error("no cells produced")
         return 1
-    if inspect_recs:
-        insp = out_path.parent / f"inspect_{out_path.stem}.md"
-        insp.write_text(_render_spec_inspection_md(inspect_recs), encoding="utf-8")
-        logger.info("inspection bundle: {} cell(s) -> {}", len(inspect_recs), insp)
+    _persist_and_render_inspection(out_path, inspect_recs)
     _print_summary(pd.DataFrame(rows_out))
     return 0 if n_failed == 0 else 2
+
+
+def _persist_and_render_inspection(out_path, new_recs: list[dict]) -> None:
+    """Windowed-resume-safe inspection bundle (fix for the v1+v2 full runs, where
+    the md was lost twice: records lived only in the window that computed the
+    cells, and that window died at walltime before the writer ran).
+
+    Every window APPENDS its records to inspect_<stem>.jsonl at the end, then
+    re-renders inspect_<stem>.md from ALL jsonl records — so the surviving md is
+    cumulative and even a surplus no-op window regenerates it. Records are
+    deduped on (question_id, spec_level, model_key), last write wins.
+    """
+    jsonl = out_path.parent / f"inspect_{out_path.stem}.jsonl"
+    if new_recs:
+        with jsonl.open("a", encoding="utf-8") as fh:
+            for rec in new_recs:
+                fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    if not jsonl.exists():
+        return
+    dedup: dict[tuple, dict] = {}
+    for line in jsonl.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue   # torn line from a walltime kill mid-write; skip
+        dedup[(rec.get("question_id"), rec.get("spec_level"), rec.get("model_key"))] = rec
+    if not dedup:
+        return
+    records = list(dedup.values())
+    md = out_path.parent / f"inspect_{out_path.stem}.md"
+    md.write_text(_render_spec_inspection_md(records), encoding="utf-8")
+    logger.info("inspection bundle: {} new rec(s), {} total -> {}",
+                len(new_recs), len(records), md)
 
 
 def _render_spec_inspection_md(records: list[dict]) -> str:

@@ -15,12 +15,57 @@ import argparse
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from ..config import load_config
 
-_COLS = ["f_mean", "f_mean_permissive", "aufi_in", "fi_out_mean",
+_COLS = ["f_mean", "f_mean_permissive", "aufi_in", "fi_out_mean", "fi_out_fixed",
          "h_sem_mean", "a_q", "fi_spec"]
+
+
+def add_fi_out_fixed(df: pd.DataFrame) -> pd.DataFrame:
+    """Derived, FIXED-answer-space output FI: log2(m0) - H_sem.
+
+    fi_out_mean uses the OBSERVED |A_q|, which itself shrinks with specificity
+    (fewer output clusters at L1), so its sign is not interpretable for the
+    specificity hypothesis. Holding the space at the dataset's m0 makes the
+    output-side quantity comparable across levels (rises exactly when H_sem
+    falls). Post-dump derivation — metrics/ untouched.
+    """
+    df = df.copy()
+    if {"m0", "h_sem_mean"} <= set(df.columns):
+        m0 = pd.to_numeric(df["m0"], errors="coerce").clip(lower=1)
+        df["fi_out_fixed"] = np.log2(m0) - df["h_sem_mean"]
+    return df
+
+
+def paired_deltas(
+    df: pd.DataFrame, cols: list[str], *, exclude_mismatched: bool = True
+) -> tuple[pd.DataFrame, int]:
+    """Per-question (level 1 - level 0) deltas.
+
+    N-mismatched pairs (different paraphrase counts at the two levels, e.g. a
+    singleton universe at L0 vs 10 at L1) have DIFFERENT AUFI ceilings —
+    log2(N+1) — so their FI_in deltas are artifacts (the v2 run's two "+2.4 bit"
+    outliers were exactly this). They are excluded from the paired stats and
+    reported as a count.
+    """
+    vals = [c for c in cols if c in df.columns] + ["n_paraphrases"]
+    w = df.pivot_table(index=["question_id", "model_key"], columns="spec_level",
+                       values=vals, aggfunc="mean")
+    if not {0, 1} <= set(df["spec_level"].unique()):
+        return pd.DataFrame(), 0
+    mism = w[("n_paraphrases", 0)] != w[("n_paraphrases", 1)]
+    n_excluded = 0
+    if exclude_mismatched:
+        n_excluded = int(mism.sum())
+        w = w[~mism]
+    deltas = pd.DataFrame({
+        c: w[(c, 1)] - w[(c, 0)]
+        for c in cols if (c, 0) in w.columns and (c, 1) in w.columns
+    })
+    return deltas, n_excluded
 
 
 def main() -> int:
@@ -32,7 +77,7 @@ def main() -> int:
     path = Path(args.inp)
     if not path.is_absolute():
         path = config.repo_root() / path
-    df = pd.read_parquet(path)
+    df = add_fi_out_fixed(pd.read_parquet(path))
     cols = [c for c in _COLS if c in df.columns]
     fmt = lambda x: f"{x:.3f}"  # noqa: E731
 
@@ -44,18 +89,20 @@ def main() -> int:
     group = ["model_key", "spec_level"] if df["model_key"].nunique() > 1 else ["spec_level"]
     print(df.groupby(group)[cols].mean().to_string(float_format=fmt))
 
-    # Per-question level deltas (1 minus 0) — the validation hypotheses:
-    # f_mean up, aufi_in down, h_sem down, fi_out up, fi_spec up.
-    delta_cols = [c for c in ["f_mean", "aufi_in", "fi_out_mean", "h_sem_mean", "fi_spec"]
+    # Per-question level deltas (1 minus 0) — the validation hypotheses. NOTE:
+    # fi_out_mean's sign is not interpretable (observed |A_q| shrinks with
+    # specificity); fi_out_fixed = log2(m0) - H_sem carries the output-side
+    # hypothesis instead (expected +).
+    delta_cols = [c for c in ["f_mean", "aufi_in", "fi_out_fixed", "h_sem_mean", "fi_spec"]
                   if c in df.columns]
-    wide = df.pivot_table(index=["question_id", "model_key"], columns="spec_level",
-                          values=delta_cols, aggfunc="mean")
-    if not wide.empty and {0, 1} <= set(df["spec_level"].unique()):
-        deltas = pd.DataFrame({c: wide[(c, 1)] - wide[(c, 0)] for c in delta_cols
-                               if (c, 0) in wide.columns and (c, 1) in wide.columns})
+    deltas, n_excluded = paired_deltas(df, delta_cols)
+    if not deltas.empty:
         print()
         print("per-question DELTAS (level 1 - level 0); expected signs: "
-              "f_mean +, aufi_in -, fi_out +, h_sem -, fi_spec +")
+              "f_mean +, aufi_in -, fi_out_fixed +, h_sem -, fi_spec +")
+        if n_excluded:
+            print(f"  ({n_excluded} N-mismatched pair(s) excluded — unequal paraphrase "
+                  "counts across levels make FI_in deltas artifacts)")
         print(deltas.describe().loc[["mean", "50%", "min", "max"]].to_string(float_format=fmt))
         frac_up = (deltas > 0).mean()
         print()

@@ -129,7 +129,7 @@ pull_tar() {
   # Lustre incident — e.g. the three June leftovers that failed 'Cannot stat' on
   # every 2026-07-06 pull) is SKIPPED with a warning instead of failing the whole
   # archive's exit status. Everything readable still transfers.
-  $SSH_CMD "$REMOTE" "cd '$REMOTE_DIR' 2>/dev/null || exit 1; items=\$(ls -d cluster_logs data/*.parquet data/*.md data/plots 2>/dev/null); [ -n \"\$items\" ] || exit 1; tar czf - --ignore-failed-read \$items" \
+  $SSH_CMD "$REMOTE" "cd '$REMOTE_DIR' 2>/dev/null || exit 1; items=\$(ls -d cluster_logs data/*.parquet data/*.md data/*.jsonl data/plots 2>/dev/null); [ -n \"\$items\" ] || exit 1; tar czf - --ignore-failed-read \$items" \
     | tar xzf - -C . 2>/dev/null \
     && echo "   pulled cluster_logs + data/*.parquet + data/*.md + data/plots (any
    'Cannot stat' warnings above = damaged remote files that were skipped)" \
