@@ -151,12 +151,20 @@ def _generate_spec_paraphrases(
         n_gen += 1
         logger.info("paraphrase universe {}/{}: qid={} L{}",
                     n_gen, n_todo, row.question_id, row.spec_level)
+        # The gold-constraint set is the answer SET the paraphrase must
+        # preserve, matched to the level's meaning:
+        #   L0 (ambiguous)     -> EVERY interpretation's answers. The ambiguous
+        #      question's answer is the union; scoring a faithful L0 paraphrase
+        #      against one interpretation rejected 100% of them (2026-07-06).
+        #   L1 (disambiguated) -> the target answer's surface variants only.
+        # The SCORING gold (row.target_answers, fixed across levels) is untouched.
+        gold_set = row.all_answers if row.spec_level == 0 else row.target_answers
         try:
             pset = build_paraphrase_set(
                 f"{row.question_id}::L{row.spec_level}",
                 row.question_text,
                 config=config,
-                gold_answer=row.target_answers[0],
+                gold_answers=gold_set or row.target_answers,
             )
             texts = [ap.text for ap in pset.accepted][:max_paraphrases]
             outcome = "accepted"

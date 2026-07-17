@@ -30,7 +30,10 @@ from typing import Sequence
 from loguru import logger
 
 from ..config import Config, load_config
-from .constraint_filter import filter_by_constraint, filter_by_constraint_with_gold
+from .constraint_filter import (
+    filter_by_constraint,
+    filter_by_constraint_with_gold_multi,
+)
 from .deduplicate import deduplicate, levenshtein, levenshtein_tokens
 from .generate import generate_raw_paraphrases
 from .nli_filter import filter_by_nli
@@ -39,7 +42,6 @@ from .schemas import (
     ParaphraseSet,
     RawParaphrase,
     RejectedParaphrase,
-    RoleName,
 )
 
 
@@ -58,12 +60,30 @@ class _Scored:
         return (-min(self.nli_fwd, self.nli_bwd), -self.jaccard)
 
 
+def _resolve_golds(
+    gold_answer: str | None, gold_answers: Sequence[str] | None
+) -> list[str] | None:
+    """Fold the singular and plural gold inputs into one de-duplicated OR-set.
+
+    `gold_answers` (the interpretation set) wins when non-empty; otherwise the
+    singular `gold_answer`. Blank entries are dropped. Returns None only when no
+    usable gold remains, which routes the pipeline to the Jaccard fallback.
+    """
+    raw = list(gold_answers) if gold_answers else ([gold_answer] if gold_answer else [])
+    seen: dict[str, None] = {}
+    for g in raw:
+        if g and g.strip():
+            seen.setdefault(g.strip(), None)
+    return list(seen) or None
+
+
 def build_paraphrase_set(
     question_id: str,
     question_text: str,
     *,
     config: Config | None = None,
     gold_answer: str | None = None,
+    gold_answers: Sequence[str] | None = None,
 ) -> ParaphraseSet:
     """Run the full pipeline for one question.
 
@@ -72,14 +92,23 @@ def build_paraphrase_set(
     each candidate gets a single yes/no judge call "does this rephrasing
     still have GOLD as a valid answer?". Robust to surface-form drift.
 
-    When `gold_answer` is None, falls back to the brief's original
+    `gold_answers` — a *set* of acceptable answers; a candidate passes if it
+    preserves ANY of them (OR). Use for an AMBIGUOUS question whose answer is
+    the union over interpretations: single-gold rejected 100% of NLI-valid
+    paraphrases of the ambiguous specificity level (2026-07-06 run), because
+    each was judged against one interpretation's answer. Mirrors the OR in
+    scoring.f_score_batch_multi_gold. Takes precedence over `gold_answer`.
+
+    When neither gold is supplied, falls back to the brief's original
     judge-vs-judge Jaccard ≥ 0.9 path. The 2026-05-20 smoke run showed the
     Jaccard path drops 95-100% of candidates that pass NLI, because two
     independent judge calls produce divergent answer surface forms. Prefer
-    `gold_answer` whenever the data has one (HotpotQA + 2Wiki both do).
+    a gold whenever the data has one (HotpotQA + 2Wiki both do).
     """
     if config is None:
         config = load_config()
+    # Unify the two gold inputs into one OR-set; empty -> Jaccard fallback.
+    _golds = _resolve_golds(gold_answer, gold_answers)
     pcfg = config.paraphrases
 
     target = pcfg.n_per_question
@@ -184,10 +213,10 @@ def build_paraphrase_set(
         constraint_total = len(post_nli)
         if post_nli:
             survivors: list[_Scored] = []
-            if gold_answer is not None:
-                bools = filter_by_constraint_with_gold(
+            if _golds is not None:
+                bools = filter_by_constraint_with_gold_multi(
                     [s.raw.text for s in post_nli],
-                    gold_answer,
+                    _golds,
                     original_question=question_text,
                     config=config,
                 )
@@ -234,7 +263,9 @@ def build_paraphrase_set(
             accepted.extend(survivors)
         # Diagnostic: per-batch constraint pass rate.
         if constraint_total > 0:
-            mode = "gold" if gold_answer is not None else "jaccard"
+            mode = (
+                f"gold×{len(_golds)}" if _golds is not None else "jaccard"
+            )
             logger.info(
                 "qid={} constraint batch ({}): pass={}/{}",
                 question_id,
@@ -335,7 +366,7 @@ def build_paraphrase_set(
                     question_text,
                     all_raw,
                     config,
-                    gold_answer=gold_answer,
+                    gold_answers=_golds,
                 )
             # Already at fallback threshold and still short: give up.
             pset.dropped = True
@@ -372,7 +403,7 @@ def _retry_with_relaxed(
     all_raw: Sequence[RawParaphrase],
     config: Config,
     *,
-    gold_answer: str | None = None,
+    gold_answers: Sequence[str] | None = None,
 ) -> ParaphraseSet:
     """Re-run filters at the fallback threshold on the cumulated raw candidates.
 
@@ -412,10 +443,10 @@ def _retry_with_relaxed(
         post_nli.append(_Scored(raw=raw, nli_fwd=scores.entail_fwd, nli_bwd=scores.entail_bwd, jaccard=math.nan))
 
     survivors: list[_Scored] = []
-    if gold_answer is not None:
-        bools = filter_by_constraint_with_gold(
+    if gold_answers is not None:
+        bools = filter_by_constraint_with_gold_multi(
             [s.raw.text for s in post_nli],
-            gold_answer,
+            gold_answers,
             original_question=question_text,
             config=config,
         )
@@ -460,7 +491,7 @@ def _retry_with_relaxed(
     logger.info(
         "qid={} relaxed-retry constraint ({}): pass={}/{}",
         question_id,
-        "gold" if gold_answer is not None else "jaccard",
+        f"gold×{len(gold_answers)}" if gold_answers is not None else "jaccard",
         len(survivors),
         len(post_nli),
     )

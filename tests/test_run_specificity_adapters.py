@@ -115,7 +115,7 @@ def test_paraphrase_universes_persist_incrementally(monkeypatch, tmp_path):
 
     snapshots: list[int] = []
 
-    def fake_build(qid, text, *, config=None, gold_answer=None):
+    def fake_build(qid, text, *, config=None, gold_answer=None, gold_answers=None):
         # capture how many rows were ALREADY persisted when this universe starts
         snapshots.append(len(pd.read_parquet(cache)) if cache.exists() else 0)
         if text == "A?":
@@ -139,6 +139,38 @@ def test_paraphrase_universes_persist_incrementally(monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline_mod, "build_paraphrase_set", exploding_build)
     out2 = rs._generate_spec_paraphrases(load_config(), rows, max_paraphrases=10)
     assert out2[("qA", 0)] == ["A one?", "A two?"] and out2[("qB", 0)] == ["B?"]
+
+
+def test_generation_uses_multi_gold_at_L0_and_target_at_L1(tmp_path, monkeypatch):
+    """The fix: L0 (ambiguous) paraphrases are constrained against the WHOLE
+    interpretation set (all_answers); L1 (disambiguated) against the target's
+    variants only. Single-gold at L0 rejected 100% of NLI-valid paraphrases."""
+    from prompt_sensitivity.config import load_config
+    from prompt_sensitivity.scripts import run_specificity as rs
+    from prompt_sensitivity.specificity.build_levels import SpecRow
+    import prompt_sensitivity.paraphrases.pipeline as pipeline_mod
+
+    monkeypatch.setattr(rs, "_AMBIGQA_PARAPHRASE_PARQUET", str(tmp_path / "p.parquet"))
+    rows = [
+        SpecRow(question_id="q", spec_level=0, question_text="Ambig?",
+                target_answers=["A1", "A1-alias"], all_answers=["A1", "A1-alias", "A2", "A3"],
+                m_valid=3, m0=3, target_idx=0),
+        SpecRow(question_id="q", spec_level=1, question_text="Disambig?",
+                target_answers=["A1", "A1-alias"], all_answers=["A1", "A1-alias", "A2", "A3"],
+                m_valid=1, m0=3, target_idx=0),
+    ]
+    seen: dict[int, list[str]] = {}
+
+    def capture_build(qid, text, *, config=None, gold_answer=None, gold_answers=None):
+        lvl = 0 if qid.endswith("L0") else 1
+        seen[lvl] = list(gold_answers) if gold_answers is not None else None
+        return type("PS", (), {"accepted": [type("AP", (), {"text": text})()]})()
+
+    monkeypatch.setattr(pipeline_mod, "build_paraphrase_set", capture_build)
+    rs._generate_spec_paraphrases(load_config(), rows, max_paraphrases=10)
+
+    assert seen[0] == ["A1", "A1-alias", "A2", "A3"]   # L0 -> full interpretation set
+    assert seen[1] == ["A1", "A1-alias"]               # L1 -> target variants only
 
 
 def test_spec_inspection_renderer_contains_every_step():

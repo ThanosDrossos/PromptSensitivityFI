@@ -176,7 +176,7 @@ def test_gold_answer_routes_to_gold_filter(monkeypatch):
     gold_calls: list[list[str]] = []
     jaccard_calls: list[list[str]] = []
 
-    def fake_gold_filter(candidates, gold, *, original_question=None, config=None):
+    def fake_gold_filter(candidates, golds, *, original_question=None, config=None):
         gold_calls.append(list(candidates))
         return [True] * len(list(candidates))  # all pass
 
@@ -192,7 +192,7 @@ def test_gold_answer_routes_to_gold_filter(monkeypatch):
         "prompt_sensitivity.paraphrases.pipeline.filter_by_nli",
         side_effect=_high_nli,
     ), patch(
-        "prompt_sensitivity.paraphrases.pipeline.filter_by_constraint_with_gold",
+        "prompt_sensitivity.paraphrases.pipeline.filter_by_constraint_with_gold_multi",
         side_effect=fake_gold_filter,
     ), patch(
         "prompt_sensitivity.paraphrases.pipeline.filter_by_constraint",
@@ -212,7 +212,7 @@ def test_no_gold_answer_falls_back_to_jaccard(monkeypatch):
     gold_calls: list[list[str]] = []
     jaccard_calls: list[list[str]] = []
 
-    def fake_gold_filter(candidates, gold, *, original_question=None, config=None):
+    def fake_gold_filter(candidates, golds, *, original_question=None, config=None):
         gold_calls.append(list(candidates))
         return [True] * len(list(candidates))
 
@@ -228,7 +228,7 @@ def test_no_gold_answer_falls_back_to_jaccard(monkeypatch):
         "prompt_sensitivity.paraphrases.pipeline.filter_by_nli",
         side_effect=_high_nli,
     ), patch(
-        "prompt_sensitivity.paraphrases.pipeline.filter_by_constraint_with_gold",
+        "prompt_sensitivity.paraphrases.pipeline.filter_by_constraint_with_gold_multi",
         side_effect=fake_gold_filter,
     ), patch(
         "prompt_sensitivity.paraphrases.pipeline.filter_by_constraint",

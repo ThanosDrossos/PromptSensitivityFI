@@ -1,7 +1,5 @@
 """Constraint filter: JSON parsing + Jaccard + normaliser. No gateway needed."""
 
-import pytest
-
 from prompt_sensitivity.paraphrases.constraint_filter import (
     _norm,
     _parse_answers_json,
@@ -150,6 +148,48 @@ def test_filter_by_constraint_with_gold_returns_parallel_bools(monkeypatch):
         ["a", "b", "c"], "GOLD", original_question="orig question?"
     )
     assert out == [True, False, True]
+
+
+def test_filter_by_constraint_with_gold_multi_is_OR_and_short_circuits(monkeypatch):
+    """A candidate passes if it preserves ANY gold (the ambiguous-question fix),
+    and each candidate is only judged until its first accepting gold."""
+    from prompt_sensitivity.paraphrases import constraint_filter as cf
+
+    # judge accepts (candidate, gold) only for these exact pairs.
+    accept = {("c_target", "GOLD_T"), ("c_other", "GOLD_O")}
+    calls: list[tuple[str, str]] = []
+
+    def fake_judge(candidate, gold, *, original_question=None, config=None):
+        calls.append((candidate, gold))
+        return (candidate, gold) in accept
+
+    monkeypatch.setattr(cf, "judge_contains_gold", fake_judge)
+    out = cf.filter_by_constraint_with_gold_multi(
+        ["c_target", "c_other", "c_none"],
+        ["GOLD_T", "GOLD_O"],
+        original_question="orig?",
+    )
+    assert out == [True, True, False]           # OR over the two golds
+    # short-circuit: c_target passed on GOLD_T, so it is NOT retried on GOLD_O.
+    assert ("c_target", "GOLD_O") not in calls
+    assert ("c_other", "GOLD_T") in calls and ("c_other", "GOLD_O") in calls
+
+
+def test_filter_by_constraint_with_gold_multi_edge_cases(monkeypatch):
+    from prompt_sensitivity.paraphrases import constraint_filter as cf
+
+    monkeypatch.setattr(
+        cf, "judge_contains_gold",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("judge must not run")),
+    )
+    # no usable gold -> all False, judge never called
+    assert cf.filter_by_constraint_with_gold_multi(
+        ["a", "b"], ["", "  "], original_question="q?"
+    ) == [False, False]
+    # empty candidate list -> empty, judge never called
+    assert cf.filter_by_constraint_with_gold_multi(
+        [], ["GOLD"], original_question="q?"
+    ) == []
 
 
 def test_judge_prompt_includes_original_question(monkeypatch):

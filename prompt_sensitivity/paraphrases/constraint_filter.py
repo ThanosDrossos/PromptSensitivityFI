@@ -31,7 +31,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, Sequence
 
 from loguru import logger
 
@@ -320,3 +320,41 @@ def filter_by_constraint_with_gold(
         )
         for c in candidates
     ]
+
+
+def filter_by_constraint_with_gold_multi(
+    candidates: Iterable[str],
+    gold_answers: Sequence[str],
+    *,
+    original_question: str,
+    config: Config | None = None,
+) -> list[bool]:
+    """Multi-gold gold-based filter: a candidate PASSES if it preserves ANY of the
+    accepted answers (logical OR over `gold_answers`).
+
+    For an AMBIGUOUS question the answer is a SET (all interpretations), so a
+    faithful paraphrase must be judged against the set, not one interpretation —
+    single-gold rejected 100% of NLI-valid paraphrases of the ambiguous level in
+    the 2026-07-06 run. Symmetric with scoring.f_score_batch_multi_gold. Short-
+    circuits per candidate (stops at the first gold it satisfies) to bound judge
+    calls; empty/blank golds are ignored (-> all False if none remain).
+    """
+    cands = list(candidates)
+    golds = [g for g in gold_answers if g and g.strip()]
+    if not cands:
+        return []
+    if not golds:
+        return [False] * len(cands)
+    passed = [False] * len(cands)
+    for gold in golds:
+        pending = [i for i, ok in enumerate(passed) if not ok]
+        if not pending:
+            break
+        results = filter_by_constraint_with_gold(
+            [cands[i] for i in pending], gold,
+            original_question=original_question, config=config,
+        )
+        for i, ok in zip(pending, results):
+            if ok:
+                passed[i] = True
+    return passed

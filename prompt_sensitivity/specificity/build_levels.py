@@ -32,7 +32,14 @@ class SpecRow(BaseModel):
     question_id: str
     spec_level: int                 # 0 = ambiguous, 1 = disambiguated
     question_text: str              # Q at level 0, Q_i at level 1
-    target_answers: list[str]       # a_i variants, FIXED across both levels
+    target_answers: list[str]       # a_i variants (SCORING gold), FIXED across both levels
+    # Union of EVERY interpretation's answers (the ambiguous question's full
+    # answer SET). Used only as the L0 paraphrase gold-constraint set: a faithful
+    # paraphrase of the ambiguous Q must preserve ANY interpretation's answer, so
+    # scoring it against the single target answer wrongly rejected 100% of
+    # NLI-valid L0 paraphrases (2026-07-06). NOT a scoring gold — the fixed
+    # `target_answers` guardrail is unchanged.
+    all_answers: list[str] = Field(default_factory=list)
     m_valid: int                    # level 0 -> m0, level 1 -> 1
     m0: int
     target_idx: int                 # which interpretation was chosen as target
@@ -57,9 +64,18 @@ def build_spec_levels(
     m0 = q.m0()
     idx = choose_target_idx(q.id, m0, seed=seed)
     target = q.interpretations[idx]
+    # Order-preserving dedup of every interpretation's answers -> the ambiguous
+    # question's full answer set (target first so it leads the OR short-circuit).
+    all_answers: dict[str, None] = {}
+    for a in target.answers:
+        all_answers.setdefault(a, None)
+    for interp in q.interpretations:
+        for a in interp.answers:
+            all_answers.setdefault(a, None)
     common = dict(
         question_id=q.id,
         target_answers=list(target.answers),
+        all_answers=list(all_answers),
         m0=m0,
         target_idx=idx,
         evidence=list(q.evidence) if include_evidence else [],
