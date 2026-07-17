@@ -84,6 +84,43 @@ def test_add_fi_out_fixed_is_log2_m0_minus_hsem():
     assert np.isclose(out["fi_out_fixed"].iloc[1], 0.0)
 
 
+def test_add_fi_out_fixed_respects_pipeline_column():
+    """Mixed resume parquet: rows written by the new driver carry fi_out_fixed;
+    older rows are NaN and get the identical derivation filled in."""
+    df = pd.DataFrame([
+        {"m0": 4, "h_sem_mean": 0.5, "fi_out_fixed": 1.5},    # pipeline row kept
+        {"m0": 4, "h_sem_mean": 1.0, "fi_out_fixed": np.nan},  # old row -> derived
+    ])
+    out = add_fi_out_fixed(df)
+    assert np.isclose(out["fi_out_fixed"].iloc[0], 1.5)
+    assert np.isclose(out["fi_out_fixed"].iloc[1], 2.0 - 1.0)
+
+
+def test_graded_f_scores_means_per_paraphrase(monkeypatch):
+    """F_graded(x) = fraction of that paraphrase's k samples hitting any gold,
+    computed in ONE flattened multi-gold batch, ordered by paraphrase index."""
+    from prompt_sensitivity.scripts import run_specificity as rs
+
+    captured: dict = {}
+
+    def fake_multi(golds, answers, *, config=None, permissive=False):
+        captured["golds"] = list(golds)
+        captured["answers"] = list(answers)
+        # paraphrase 0: [1,0], paraphrase 1: [1,1]
+        return [1.0, 0.0, 1.0, 1.0]
+
+    monkeypatch.setattr(rs, "f_score_batch_multi_gold", fake_multi)
+    out = rs._graded_f_scores(
+        ["g1", "g2"],
+        {1: ["s1c", "s1d"], 0: ["s0a", "s0b"]},   # dict order shuffled on purpose
+        config=None,
+    )
+    assert out == [0.5, 1.0]                       # sorted by paraphrase index
+    assert captured["answers"] == ["s0a", "s0b", "s1c", "s1d"]  # one flat batch
+    assert captured["golds"] == ["g1", "g2"]
+    assert rs._graded_f_scores(["g"], {}, config=None) == []
+
+
 def test_repair_planner_pair_consistent_and_retries_fallbacks():
     para = pd.DataFrame(
         # qA: complete (10+10) -> untouched

@@ -20,8 +20,8 @@ import pandas as pd
 
 from ..config import load_config
 
-_COLS = ["f_mean", "f_mean_permissive", "aufi_in", "fi_out_mean", "fi_out_fixed",
-         "h_sem_mean", "a_q", "fi_spec"]
+_COLS = ["f_mean", "f_mean_permissive", "f_graded_mean", "aufi_in", "aufi_in_graded",
+         "fi_out_mean", "fi_out_fixed", "h_sem_mean", "a_q", "fi_spec"]
 
 
 def add_fi_out_fixed(df: pd.DataFrame) -> pd.DataFrame:
@@ -31,12 +31,18 @@ def add_fi_out_fixed(df: pd.DataFrame) -> pd.DataFrame:
     (fewer output clusters at L1), so its sign is not interpretable for the
     specificity hypothesis. Holding the space at the dataset's m0 makes the
     output-side quantity comparable across levels (rises exactly when H_sem
-    falls). Post-dump derivation — metrics/ untouched.
+    falls). The driver emits the column at run time since 2026-07-17; rows from
+    older runs (or a mixed resume parquet) get the identical derivation filled
+    in here, pipeline values taking precedence.
     """
     df = df.copy()
     if {"m0", "h_sem_mean"} <= set(df.columns):
         m0 = pd.to_numeric(df["m0"], errors="coerce").clip(lower=1)
-        df["fi_out_fixed"] = np.log2(m0) - df["h_sem_mean"]
+        derived = np.log2(m0) - df["h_sem_mean"]
+        if "fi_out_fixed" in df.columns:
+            df["fi_out_fixed"] = df["fi_out_fixed"].combine_first(derived)
+        else:
+            df["fi_out_fixed"] = derived
     return df
 
 
@@ -93,13 +99,14 @@ def main() -> int:
     # fi_out_mean's sign is not interpretable (observed |A_q| shrinks with
     # specificity); fi_out_fixed = log2(m0) - H_sem carries the output-side
     # hypothesis instead (expected +).
-    delta_cols = [c for c in ["f_mean", "aufi_in", "fi_out_fixed", "h_sem_mean", "fi_spec"]
-                  if c in df.columns]
+    delta_cols = [c for c in ["f_mean", "f_graded_mean", "aufi_in", "aufi_in_graded",
+                              "fi_out_fixed", "h_sem_mean", "fi_spec"]
+                  if c in df.columns and df[c].notna().any()]
     deltas, n_excluded = paired_deltas(df, delta_cols)
     if not deltas.empty:
         print()
         print("per-question DELTAS (level 1 - level 0); expected signs: "
-              "f_mean +, aufi_in -, fi_out_fixed +, h_sem -, fi_spec +")
+              "f_mean/f_graded +, aufi_in(_graded) -, fi_out_fixed +, h_sem -, fi_spec +")
         if n_excluded:
             print(f"  ({n_excluded} N-mismatched pair(s) excluded — unequal paraphrase "
                   "counts across levels make FI_in deltas artifacts)")

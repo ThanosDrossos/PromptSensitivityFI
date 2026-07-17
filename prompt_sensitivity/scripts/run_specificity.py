@@ -32,6 +32,7 @@ from ..data.load_ambigqa import load_ambigqa
 from ..ladders.schemas import LadderRow
 from ..logging_setup import configure_logging
 from ..metrics import build_metric_tuple
+from ..metrics.fi_in import aufi_in_from_scores
 from ..metrics.fi_spec import fi_spec_bits
 from ..metrics.h_sem import cluster_responses_pooled
 from ..models.embedding import encode_texts
@@ -103,6 +104,41 @@ def _ladder_row_for(row: SpecRow, n_paragraphs: int = 0) -> LadderRow:
         paragraph_titles=[],
         gold_count=0,
     )
+
+
+def _graded_f_scores(
+    golds: list[str],
+    responses_per_paraphrase: dict[int, list[str]],
+    config,
+) -> list[float]:
+    """GRADED per-paraphrase function F(x) = fraction of the k temperature
+    samples (the H_sem samples — already generated, zero extra generation)
+    that hit ANY gold variant.
+
+    Why: the T=0 multi-gold score is BINARY per paraphrase here (no chain to
+    grade, unlike MuSiQue), so FI_in(k) is a flat step for every cell (verified
+    100/100 in the 2026-07-06 v2 run) and AUFI collapses to a monotone
+    transform of accuracy. Estimating F(x) = P(correct | x) from the k samples
+    restores a genuinely graded score, hence a real FI_in(k) curve to lead with.
+    Ordered by paraphrase index; scored in ONE flattened multi-gold batch.
+    """
+    idxs = sorted(responses_per_paraphrase)
+    flat: list[str] = []
+    counts: list[int] = []
+    for i in idxs:
+        samples = responses_per_paraphrase[i]
+        flat.extend(samples)
+        counts.append(len(samples))
+    if not flat:
+        return []
+    scores = [float(s) for s in f_score_batch_multi_gold(golds, flat, config=config)]
+    out: list[float] = []
+    pos = 0
+    for c in counts:
+        chunk = scores[pos:pos + c]
+        out.append(float(np.mean(chunk)) if chunk else 0.0)
+        pos += c
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -224,6 +260,7 @@ def _run_spec_cell(
     inspect: bool = False,
     context_mode: str = "uniform_evidence",
     evidence_max_chars: int = 6000,
+    posix: bool = False,
 ) -> tuple[dict, dict | None]:
     """One (SpecRow, model) cell -> (flat result row, inspection record | None).
     Mirrors the e2e binary (non-CoT) path but scores with the multi-gold OR and
@@ -244,7 +281,6 @@ def _run_spec_cell(
     prompt_messages = [
         _assemble_messages(view, p, lrow, use_cot=False) for p in paraphrases
     ]
-    prompt_user_texts = [m[1].content for m in prompt_messages]
 
     # --- F(x) at T=0, multi-gold OR over the target's answer variants --------
     f_responses = [
@@ -266,6 +302,8 @@ def _run_spec_cell(
                 float(np.mean(f_scores_perm)) if f_scores_perm else 0.0)
 
     n = len(paraphrases)
+    f_graded: list[float] | None = None
+    posix_log_p = posix_lengths = None
     if fast:
         cluster_assignments: dict[int, list[int]] = {}
         prompt_embeddings = np.zeros((n, 1), dtype=np.float32)
@@ -288,11 +326,31 @@ def _run_spec_cell(
             responses_per_paraphrase, config.h_sem.cluster_on
         )
         cluster_assignments = cluster_responses_pooled(clustering_inputs, config=config)
-        prompt_embeddings = encode_texts(prompt_user_texts, config=config)
+        # ESS_in: embed the PARAPHRASE TEXT, not the full user message. The v2
+        # user message is >90% the shared 6000-char evidence block, and mpnet
+        # (trained to map same-meaning texts together) collapses the N nearly-
+        # identical messages to one point — ESS_in was exactly 0 in 98/100
+        # cells of the 2026-07-06 run. The paraphrase line is the only part of
+        # the prompt that VARIES over U_q, which is the dispersion ESS_in is
+        # meant to measure (design doc §3 Tier C C4).
+        prompt_embeddings = encode_texts(list(paraphrases), config=config)
         response_embeddings = {
             i: encode_texts(samples, config=config)
             for i, samples in responses_per_paraphrase.items()
         }
+        # GRADED F(x) from the same k samples (no extra generation; one batch
+        # of multi-gold scorings). See _graded_f_scores for why.
+        f_graded = _graded_f_scores(
+            list(row.target_answers), responses_per_paraphrase, config
+        )
+        # POSIX (Chatterjee 2024) — opt-in: N*N teacher-forced forward passes
+        # per cell via the echo path (~100 encodings of evidence-length prompts
+        # for N=10). Same matrix builder as the e2e path.
+        if posix and model_entry.echo_completions:
+            from .e2e_smoke import _posix_matrix
+            posix_log_p, posix_lengths = _posix_matrix(
+                client, model_entry, prompt_messages, f_responses, view, lrow
+            )
 
     tup = build_metric_tuple(
         question_id=row.question_id,
@@ -303,8 +361,8 @@ def _run_spec_cell(
         cluster_assignments=cluster_assignments,
         prompt_embeddings=prompt_embeddings,
         response_embeddings=response_embeddings,
-        posix_log_p=None,
-        posix_lengths=None,
+        posix_log_p=posix_log_p,
+        posix_lengths=posix_lengths,
         encoder_label="external_mpnet",
         config=config,
         fi_spec=fi_spec_bits(row.m0, row.m_valid),
@@ -320,6 +378,27 @@ def _run_spec_cell(
     row_dict["f_mean_permissive"] = float(np.mean(f_scores_perm)) if f_scores_perm else None
     row_dict["context_mode"] = context_mode
     row_dict["n_evidence_snippets"] = len(ev_paragraphs)
+    # FI_out over the FIXED answer space: log2(m0) - H_sem. fi_out_mean uses the
+    # observed |A_q|, which itself shrinks with specificity, so its sign is not
+    # interpretable for the hypothesis (2026-07-06 finding; mirrors
+    # show_specificity.add_fi_out_fixed, now emitted at run time). May go
+    # negative when the model disperses over MORE clusters than the question's
+    # own m0 interpretations — that excess is informative, so no clamp.
+    h_mean = row_dict.get("h_sem_mean")
+    row_dict["fi_out_fixed"] = (
+        float(np.log2(max(row.m0, 1)) - h_mean) if h_mean is not None else None
+    )
+    # GRADED input-space track: F(x) = P(correct|x) estimated from the k
+    # temperature samples -> a real (non-step) FI_in(k) curve. The T=0 binary
+    # columns stay primary for comparability with the earlier v2 cells.
+    if f_graded is not None:
+        row_dict["f_graded_per_paraphrase"] = list(f_graded)
+        row_dict["f_graded_mean"] = float(np.mean(f_graded)) if f_graded else None
+        row_dict["aufi_in_graded"] = aufi_in_from_scores(f_graded)
+    else:
+        row_dict["f_graded_per_paraphrase"] = None
+        row_dict["f_graded_mean"] = None
+        row_dict["aufi_in_graded"] = None
 
     # Inspection capture (per-run audit deliverable): everything needed to check
     # this cell start->finish by hand. H_sem is summarised (distinct clusters +
@@ -348,7 +427,8 @@ def _run_spec_cell(
             ],
             "hsem": hsem_summary,
             "metrics": {k: row_dict.get(k) for k in
-                        ("f_mean", "aufi_in", "fi_out_mean", "h_sem_mean", "a_q", "fi_spec")},
+                        ("f_mean", "aufi_in", "f_graded_mean", "aufi_in_graded",
+                         "fi_out_mean", "fi_out_fixed", "h_sem_mean", "a_q", "fi_spec")},
         }
     return row_dict, inspect_rec
 
@@ -380,6 +460,10 @@ def _parse_args() -> argparse.Namespace:
                         default=None,
                         help="override config.specificity.context_mode "
                              "(closed_book reproduces the v1 design)")
+    parser.add_argument("--posix", action="store_true",
+                        help="also compute POSIX (Chatterjee 2024) via the echo "
+                             "path: N*N teacher-forced passes per cell — "
+                             "~100 evidence-length encodings/cell at N=10")
     parser.add_argument("--out", type=str, default="data/specificity_metrics.parquet")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -510,6 +594,7 @@ def main() -> int:
                     inspect=row.question_id in inspect_qids,
                     context_mode=context_mode,
                     evidence_max_chars=evidence_max_chars,
+                    posix=args.posix,
                 )
             except Exception:  # noqa: BLE001 — isolate cell failures
                 n_failed += 1
