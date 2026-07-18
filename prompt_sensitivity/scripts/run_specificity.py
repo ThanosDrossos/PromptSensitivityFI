@@ -106,6 +106,62 @@ def _ladder_row_for(row: SpecRow, n_paragraphs: int = 0) -> LadderRow:
     )
 
 
+def load_spec_rows(
+    config,
+    *,
+    n_questions: int | None = None,
+    context_mode: str | None = None,
+) -> tuple[list[SpecRow], list[AmbigQuestion], str, int]:
+    """Shared question -> SpecRow builder (deterministic: same filter, seed,
+    order, evidence). Used by BOTH the run driver and the hidden-state dump so
+    their prompts are bit-identical (FI probes join on (qid, level, para_idx)).
+
+    Returns (rows, questions, resolved_context_mode, evidence_max_chars).
+    Raises RuntimeError on config/data problems (callers log + exit).
+    """
+    acfg = config.sampling.ambigqa
+    if acfg is None:
+        raise RuntimeError("config.sampling.ambigqa missing — add the block from the pivot spec §9")
+    spec_cfg = config.specificity
+    target_seed = spec_cfg.target_seed if spec_cfg is not None else config.random_seed
+    n_q = n_questions if n_questions is not None else acfg.n_questions
+    mode = context_mode or (
+        spec_cfg.context_mode if spec_cfg is not None else "uniform_evidence"
+    )
+    evidence_max_chars = spec_cfg.evidence_max_chars if spec_cfg is not None else 6000
+    require_cov = (
+        mode == "uniform_evidence"
+        and (spec_cfg.require_target_in_evidence if spec_cfg is not None else True)
+    )
+
+    ambiguous = [
+        q for q in load_ambigqa(
+            hf_dataset=acfg.hf_dataset, hf_config=acfg.hf_config, split=acfg.split,
+            min_interpretations=acfg.min_interpretations,
+            include_single_answer_anchor=acfg.include_single_answer_anchor,
+        )
+        if q.is_ambiguous()
+    ]
+    if require_cov:
+        # v2 evidence-coverage filter: dataset-side + model-free (no selection on
+        # model knowledge). ~52% of the ambiguous split passes.
+        n_before = len(ambiguous)
+        ambiguous = [q for q in ambiguous if target_in_evidence(q, seed=target_seed)]
+        logger.info("evidence-coverage filter: {} -> {} questions (target answer in bundle)",
+                    n_before, len(ambiguous))
+    questions = ambiguous[:n_q]
+    if not questions:
+        raise RuntimeError("no AmbigQA questions left after filtering; bailing")
+    rows: list[SpecRow] = []
+    for q in questions:
+        rows.extend(build_spec_levels(
+            q, seed=target_seed,
+            include_evidence=mode == "uniform_evidence",
+        ))
+    logger.info("context_mode={} (evidence cap {} chars)", mode, evidence_max_chars)
+    return rows, questions, mode, evidence_max_chars
+
+
 def _graded_f_scores(
     golds: list[str],
     responses_per_paraphrase: dict[int, list[str]],
@@ -464,6 +520,10 @@ def _parse_args() -> argparse.Namespace:
                         help="also compute POSIX (Chatterjee 2024) via the echo "
                              "path: N*N teacher-forced passes per cell — "
                              "~100 evidence-length encodings/cell at N=10")
+    parser.add_argument("--prep-only", action="store_true",
+                        help="build/extend the paraphrase-universe cache and exit "
+                             "before loading any eval model (v3: run ONE prep "
+                             "chain, then per-model eval chains in parallel)")
     parser.add_argument("--out", type=str, default="data/specificity_metrics.parquet")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -475,13 +535,13 @@ def main() -> int:
     config = load_config()
     repo_root = config.repo_root()
 
-    acfg = config.sampling.ambigqa
-    if acfg is None:
-        logger.error("config.sampling.ambigqa missing — add the block from the pivot spec §9")
+    try:
+        rows, questions, context_mode, evidence_max_chars = load_spec_rows(
+            config, n_questions=args.n_questions, context_mode=args.context_mode
+        )
+    except RuntimeError as exc:
+        logger.error("{}", exc)
         return 1
-    spec_cfg = config.specificity
-    target_seed = spec_cfg.target_seed if spec_cfg is not None else config.random_seed
-    n_questions = args.n_questions if args.n_questions is not None else acfg.n_questions
     models = [m.strip() for m in args.models.split(",") if m.strip()]
     for m in models:
         if m not in config.models:
@@ -490,44 +550,6 @@ def main() -> int:
     k_samples = args.k_samples if args.k_samples is not None else config.h_sem.n_samples_per_prompt
     if not args.fast and k_samples < 5:
         logger.warning("H_sem k={} (<5): near-zero semantic-entropy resolution", k_samples)
-
-    # --- context mode (v2: uniform evidence) --------------------------------
-    context_mode = args.context_mode or (
-        spec_cfg.context_mode if spec_cfg is not None else "uniform_evidence"
-    )
-    evidence_max_chars = spec_cfg.evidence_max_chars if spec_cfg is not None else 6000
-    require_cov = (
-        context_mode == "uniform_evidence"
-        and (spec_cfg.require_target_in_evidence if spec_cfg is not None else True)
-    )
-
-    # --- questions -> spec rows ---------------------------------------------
-    ambiguous = [
-        q for q in load_ambigqa(
-            hf_dataset=acfg.hf_dataset, hf_config=acfg.hf_config, split=acfg.split,
-            min_interpretations=acfg.min_interpretations,
-            include_single_answer_anchor=acfg.include_single_answer_anchor,
-        )
-        if q.is_ambiguous()
-    ]
-    if require_cov:
-        # v2 evidence-coverage filter: dataset-side + model-free (no selection on
-        # model knowledge). ~52% of the ambiguous split passes.
-        n_before = len(ambiguous)
-        ambiguous = [q for q in ambiguous if target_in_evidence(q, seed=target_seed)]
-        logger.info("evidence-coverage filter: {} -> {} questions (target answer in bundle)",
-                    n_before, len(ambiguous))
-    questions: list[AmbigQuestion] = ambiguous[:n_questions]
-    if not questions:
-        logger.error("no AmbigQA questions left after filtering; bailing")
-        return 1
-    rows: list[SpecRow] = []
-    for q in questions:
-        rows.extend(build_spec_levels(
-            q, seed=target_seed,
-            include_evidence=context_mode == "uniform_evidence",
-        ))
-    logger.info("context_mode={} (evidence cap {} chars)", context_mode, evidence_max_chars)
 
     n_cells = len(rows) * len(models)
     per_cell_calls = args.max_paraphrases * (1 + (0 if args.fast else k_samples))
@@ -547,6 +569,20 @@ def main() -> int:
 
     # --- paraphrase universes (per question x level) -------------------------
     paraphrases = _generate_spec_paraphrases(config, rows, args.max_paraphrases)
+
+    if args.prep_only:
+        # v3 topology (FI_PROBES_PLAN.md §4): ONE prep chain builds every
+        # universe, THEN per-model eval chains run in parallel reading the cache
+        # read-only — without this barrier two eval chains that both find a
+        # universe missing would generate it concurrently and race the cache's
+        # read-modify-write append.
+        n_missing = sum(
+            1 for r in rows if not paraphrases.get((r.question_id, r.spec_level))
+        )
+        logger.info("prep-only: {} universes ready, {} missing — no eval",
+                    len(paraphrases), n_missing)
+        print(f"PREP DONE universes={len(paraphrases)} missing={n_missing}")
+        return 0
 
     # Free the generator's VRAM before the eval model loads (job 5762430
     # post-mortem): the Phi-4 generator/judge (28 GiB bf16) stayed resident after
@@ -579,8 +615,13 @@ def main() -> int:
     inspect_qids = {q.id for q in questions[: args.inspect_n]} if args.inspect_n > 0 else set()
     inspect_recs: list[dict] = []
     n_done = n_failed = n_skipped = 0
-    for row in rows:
-        for model_key in models:
+    # MODEL-major order (2026-07-18): with models inner, a 3-model run keeps all
+    # three ~15 GB models resident from the first row (lru_cache(2) loads the
+    # third BEFORE evicting the first: ~46 GB peak > the 40 GB A100). Model-major
+    # + an explicit free between models bounds peak VRAM at one eval model.
+    # Resume is key-based, so cell order is free to change.
+    for mi, model_key in enumerate(models):
+        for row in rows:
             key = _cell_key(row.question_id, row.spec_level, model_key)
             if key in done:
                 n_skipped += 1
@@ -610,6 +651,8 @@ def main() -> int:
                         n_done, time.perf_counter() - t0,
                         row.question_id, row.spec_level, model_key)
             _checkpoint(rows_out, out_path)
+        if mi < len(models) - 1:
+            _free_vram()
 
     logger.info("done: {} new, {} skipped (resume), {} failed. total: {}",
                 n_done, n_skipped, n_failed, len(rows_out))

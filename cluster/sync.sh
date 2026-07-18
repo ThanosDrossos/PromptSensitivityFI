@@ -84,6 +84,13 @@ PULL_FILES=(
   data/specificity_metrics.parquet
   data/smoke_specificity_v2.parquet
   data/specificity_v2_metrics.parquet
+  data/smoke_specificity_v3.parquet
+  data/specificity_v3_qwen_2_5_7b.parquet
+  data/specificity_v3_llama_3_1_8b.parquet
+  data/specificity_v3_mistral_7b_v03.parquet
+  data/hidden_states_qwen_2_5_7b.parquet
+  data/hidden_states_llama_3_1_8b.parquet
+  data/hidden_states_mistral_7b_v03.parquet
   data/full_llama_3_1_8b.parquet
   data/full_mistral_7b_v03.parquet
   data/full_qwen_2_5_7b.parquet

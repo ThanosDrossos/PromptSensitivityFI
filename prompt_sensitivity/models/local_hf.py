@@ -22,6 +22,7 @@ Section_7 §7.6 for the metric contracts.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from functools import lru_cache
 from typing import Any
 
@@ -338,6 +339,66 @@ class LocalHFClient(BaseLLMClient):
         norms = np.linalg.norm(pooled, axis=-1, keepdims=True)
         return (pooled / np.clip(norms, 1e-12, None)).astype(np.float32)
 
+    # ---- TBG hidden states for FI probes (FI_PROBES_PLAN.md §2) --------------
+
+    def chat_hidden_states(
+        self,
+        messages_batch: list[list[dict]],
+        *,
+        layer_fracs: Sequence[float] = (0.25, 0.5, 0.75, 1.0),
+        max_length: int | None = None,
+    ) -> tuple[np.ndarray, list[int]]:
+        """TBG (token-before-generation) hidden states at selected layers.
+
+        For each conversation: apply the model's chat template with the
+        generation prompt appended (`_format_chat`, same path `complete()`
+        uses), run ONE forward pass, and take the LAST prompt token's hidden
+        state — the exact state generation would start from (SEP's TBG
+        position, Kossen et al. 2024) — at each fractional-depth layer.
+
+        Returns `((N, L, D) float16 array, resolved layer indices)`. RAW states
+        (no pooling, no L2 norm — unlike `embed_hidden`): probes should see the
+        model's native geometry; any standardisation is the probe's choice.
+        Conversations are processed one at a time: with per-sample encoding
+        there is no padding, so "last token" needs no mask arithmetic; the
+        forward is prompt-length only and cheap relative to generation.
+        """
+        import torch
+
+        tok, model = _load_model(self.entry.model_id)
+        num_layers = int(model.config.num_hidden_layers)
+        layer_idxs = resolve_layer_fracs(num_layers, layer_fracs)
+        hidden = int(model.config.hidden_size)
+        if not messages_batch:
+            return np.zeros((0, len(layer_idxs), hidden), dtype=np.float16), layer_idxs
+
+        model_max = int(getattr(model.config, "max_position_embeddings", 4096) or 4096)
+        cap = int(max_length) if max_length is not None else min(model_max, 4096)
+
+        rows: list[np.ndarray] = []
+        for messages in messages_batch:
+            enc = _format_chat(tok, messages)
+            if enc["input_ids"].shape[1] > cap:
+                logger.warning(
+                    "chat_hidden_states: prompt of {} tokens exceeds cap {} — truncating "
+                    "(TBG state then sits on a truncated prompt)",
+                    int(enc["input_ids"].shape[1]), cap,
+                )
+                enc = {k: v[:, -cap:] for k, v in enc.items()}
+            enc = {k: v.to(model.device) for k, v in enc.items()}
+            with torch.no_grad():
+                out = model(**enc, output_hidden_states=True)
+            # (L, D): last token of the templated prompt at each selected layer.
+            rows.append(
+                np.stack(
+                    [
+                        out.hidden_states[i][0, -1].to(torch.float32).cpu().numpy()
+                        for i in layer_idxs
+                    ]
+                ).astype(np.float16)
+            )
+        return np.stack(rows), layer_idxs
+
 
 def _eos_id_set(tokenizer) -> set[int]:  # type: ignore[no-untyped-def]
     """Tokenizers may carry a list of EOS ids (e.g. Llama-3's <|eot_id|>)."""
@@ -347,3 +408,25 @@ def _eos_id_set(tokenizer) -> set[int]:  # type: ignore[no-untyped-def]
     if isinstance(eos, (list, tuple)):
         return {int(x) for x in eos}
     return {int(eos)}
+
+
+def resolve_layer_fracs(num_layers: int, fracs: "Sequence[float]") -> list[int]:
+    """Map fractional depths to indices into HF's `hidden_states` tuple.
+
+    `hidden_states` has num_layers+1 entries: index 0 is the embedding output,
+    index num_layers the final layer. frac f -> round(f * num_layers), clamped
+    to [1, num_layers] (the embedding layer carries no computation and is never
+    selected). Deduplicated preserving order, so e.g. fracs (0.25, 0.5, 0.75, 1.0)
+    on a 28-layer model give [7, 14, 21, 28]. Fractions make the layer choice
+    model-agnostic across our eval models (28 vs 32 transformer layers).
+    """
+    if num_layers < 1:
+        raise ValueError(f"num_layers must be >= 1; got {num_layers}")
+    out: list[int] = []
+    for f in fracs:
+        if not 0.0 < f <= 1.0:
+            raise ValueError(f"layer fracs must be in (0, 1]; got {f}")
+        idx = min(max(1, round(f * num_layers)), num_layers)
+        if idx not in out:
+            out.append(idx)
+    return out

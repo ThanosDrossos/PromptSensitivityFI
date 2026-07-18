@@ -218,3 +218,30 @@ def test_get_client_routes_local_provider(monkeypatch):
     assert isinstance(client, LocalHFClient)
     assert client.entry.provider == "local"
     registry.reset_clients()
+
+
+# --- resolve_layer_fracs: fractional depth -> hidden_states indices ----------
+
+
+def test_resolve_layer_fracs_model_agnostic():
+    from prompt_sensitivity.models.local_hf import resolve_layer_fracs
+
+    # qwen-2.5-7b has 28 transformer layers, llama/mistral 32.
+    assert resolve_layer_fracs(28, (0.25, 0.5, 0.75, 1.0)) == [7, 14, 21, 28]
+    assert resolve_layer_fracs(32, (0.25, 0.5, 0.75, 1.0)) == [8, 16, 24, 32]
+
+
+def test_resolve_layer_fracs_clamps_dedups_and_validates():
+    import pytest
+    from prompt_sensitivity.models.local_hf import resolve_layer_fracs
+
+    # tiny fracs clamp to layer 1 (never the index-0 embedding output) + dedup
+    assert resolve_layer_fracs(28, (0.001, 0.01, 1.0)) == [1, 28]
+    # near-identical fracs dedup after rounding
+    assert resolve_layer_fracs(4, (0.5, 0.55, 1.0)) == [2, 4]
+    with pytest.raises(ValueError):
+        resolve_layer_fracs(28, (0.0,))     # 0 would select the embedding layer
+    with pytest.raises(ValueError):
+        resolve_layer_fracs(28, (1.5,))
+    with pytest.raises(ValueError):
+        resolve_layer_fracs(0, (0.5,))
