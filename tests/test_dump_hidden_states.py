@@ -13,7 +13,50 @@ from prompt_sensitivity.scripts.dump_hidden_states import (
     done_cells,
     encode_vec,
     universe_texts,
+    validate_hidden_dump,
 )
+
+
+def _dump_frame(n_para=3, layers=(7, 28), dim=8, model="qwen_2_5_7b"):
+    rng = np.random.default_rng(0)
+    return pd.DataFrame([
+        {"question_id": "q1", "spec_level": lvl, "model_key": model,
+         "paraphrase_idx": p, "paraphrase": f"p{p}?", "context_mode": "uniform_evidence",
+         "position": "tbg", "layer_idx": layer, "layer_frac": layer / 28,
+         "dim": dim, "dtype": "float16",
+         "vec": encode_vec(rng.normal(size=dim).astype(np.float32))}
+        for lvl in (0, 1) for p in range(n_para) for layer in layers
+    ])
+
+
+def test_validate_hidden_dump_accepts_wellformed():
+    assert validate_hidden_dump(_dump_frame(), decode_stride=1) == []
+
+
+def test_validate_hidden_dump_catches_corruption():
+    # torn blob (wrong byte length)
+    df = _dump_frame()
+    df.loc[0, "vec"] = df.loc[0, "vec"][:-2]
+    assert any("dim*2" in p for p in validate_hidden_dump(df))
+
+    # a hole in the paraphrase indices of one (cell, layer)
+    df2 = _dump_frame()
+    df2 = df2[~((df2.spec_level == 0) & (df2.paraphrase_idx == 1) & (df2.layer_idx == 7))]
+    assert any("not contiguous" in p for p in validate_hidden_dump(df2))
+
+    # mixed dims within one model (e.g. two runs with different configs merged)
+    df3 = pd.concat([_dump_frame(dim=8), _dump_frame(dim=16)], ignore_index=True)
+    assert any("mixed dims" in p for p in validate_hidden_dump(df3))
+
+    # non-finite vector
+    df4 = _dump_frame()
+    bad = np.full(8, np.nan, dtype=np.float32)
+    df4.loc[0, "vec"] = encode_vec(bad)
+    assert any("non-finite" in p for p in validate_hidden_dump(df4, decode_stride=1))
+
+    # missing schema / empty
+    assert validate_hidden_dump(pd.DataFrame({"question_id": []}))
+    assert validate_hidden_dump(_dump_frame().iloc[0:0]) == ["empty dump"]
 
 
 def test_vec_roundtrip_float16():

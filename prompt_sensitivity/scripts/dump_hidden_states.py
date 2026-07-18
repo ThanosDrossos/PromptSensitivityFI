@@ -94,6 +94,61 @@ def done_cells(existing: pd.DataFrame | None) -> set[tuple[str, int]]:
     }
 
 
+_REQUIRED_COLS = {
+    "question_id", "spec_level", "model_key", "paraphrase_idx", "paraphrase",
+    "context_mode", "position", "layer_idx", "layer_frac", "dim", "dtype", "vec",
+}
+
+
+def validate_hidden_dump(df: pd.DataFrame, *, decode_stride: int = 40) -> list[str]:
+    """Invariant checks for a hidden-state feature parquet. Returns a list of
+    problem strings (empty = valid). Run on every pull before probe training —
+    a silently torn/mixed dump would corrupt probes without failing a join.
+
+    Checks: schema; float16/tbg constants; blob length == dim*2 per row; one
+    dim per model; every (qid, level) cell = same layer set x contiguous
+    paraphrase_idx 0..N-1; decoded vectors finite (strided sample).
+    """
+    problems: list[str] = []
+    missing = _REQUIRED_COLS - set(df.columns)
+    if missing:
+        return [f"missing columns: {sorted(missing)}"]
+    if df.empty:
+        return ["empty dump"]
+    if set(df["dtype"].unique()) != {"float16"}:
+        problems.append(f"unexpected dtype values: {df['dtype'].unique().tolist()}")
+    if set(df["position"].unique()) != {"tbg"}:
+        problems.append(f"unexpected position values: {df['position'].unique().tolist()}")
+    bad_len = df[df["vec"].str.len() != df["dim"] * 2]
+    if len(bad_len):
+        problems.append(f"{len(bad_len)} rows whose vec blob != dim*2 bytes (torn write?)")
+    for m, sub in df.groupby("model_key"):
+        if sub["dim"].nunique() != 1:
+            problems.append(f"{m}: mixed dims {sorted(sub['dim'].unique())}")
+        layer_sets = sub.groupby(["question_id", "spec_level"])["layer_idx"].agg(
+            lambda s: tuple(sorted(set(s)))
+        )
+        if layer_sets.nunique() != 1:
+            problems.append(f"{m}: inconsistent layer sets across cells "
+                            f"({layer_sets.nunique()} variants)")
+        for (qid, lvl), cell in sub.groupby(["question_id", "spec_level"]):
+            for layer, rows in cell.groupby("layer_idx"):
+                idxs = sorted(rows["paraphrase_idx"].tolist())
+                if idxs != list(range(len(idxs))):
+                    problems.append(f"{m} qid={qid} L{lvl} layer {layer}: "
+                                    f"paraphrase_idx not contiguous 0..N-1: {idxs}")
+    # Decode pass only over well-formed blobs — torn rows are already reported
+    # above, and decode_vec would raise on them instead of reporting.
+    decodable = df[df["vec"].str.len() == df["dim"] * 2]
+    for r in decodable.iloc[::max(1, decode_stride)].itertuples():
+        vec = decode_vec(r.vec, r.dim).astype(np.float32)
+        if not np.isfinite(vec).all():
+            problems.append(f"non-finite vector at qid={r.question_id} "
+                            f"L{r.spec_level} p{r.paraphrase_idx} layer {r.layer_idx}")
+            break
+    return problems
+
+
 def _append_rows(path: Path, rows_new: list[dict]) -> None:
     """Append with atomic replace (same pattern as the paraphrase cache)."""
     new = pd.DataFrame(rows_new)
