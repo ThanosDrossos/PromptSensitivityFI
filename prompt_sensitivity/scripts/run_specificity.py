@@ -34,7 +34,7 @@ from ..logging_setup import configure_logging
 from ..metrics import build_metric_tuple
 from ..metrics.fi_in import aufi_in_from_scores
 from ..metrics.fi_spec import fi_spec_bits
-from ..metrics.h_sem import cluster_responses_pooled
+from ..metrics.h_sem import cluster_responses_pooled, entropy_from_assignment
 from ..models.embedding import encode_texts
 from ..models.registry import get_client
 from ..scoring.nli_with_gold import f_score_batch_multi_gold
@@ -455,6 +455,14 @@ def _run_spec_cell(
         row_dict["f_graded_per_paraphrase"] = None
         row_dict["f_graded_mean"] = None
         row_dict["aufi_in_graded"] = None
+    # Per-paraphrase H_sem for the P3 probe: SEP predicts PER-PROMPT semantic
+    # entropy, but only the cell mean/var was persisted — the probe label was a
+    # cell constant. Ordered by paraphrase_idx (joins like f_graded).
+    row_dict["h_sem_per_paraphrase"] = (
+        [float(entropy_from_assignment(cluster_assignments[i]))
+         for i in sorted(cluster_assignments)]
+        if cluster_assignments else None
+    )
 
     # Inspection capture (per-run audit deliverable): everything needed to check
     # this cell start->finish by hand. H_sem is summarised (distinct clusters +
