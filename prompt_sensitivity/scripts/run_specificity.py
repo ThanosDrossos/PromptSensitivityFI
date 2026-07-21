@@ -653,6 +653,14 @@ def main() -> int:
             rows_out.append(row_dict)
             if inspect_rec is not None:
                 inspect_recs.append(inspect_rec)
+                # Persist THIS record immediately. The end-of-run writer alone
+                # loses the bundle on chained 30-min windows: every window that
+                # COMPUTES inspect cells can die at walltime mid-loop, and the
+                # surplus windows that do reach the writer have nothing to
+                # append (all cells resumed) — exactly how all three v3 full-run
+                # bundles were lost (2026-07-21) while smoke/v2 survived only by
+                # finishing in-window. Ten inspect cells/model -> negligible IO.
+                _persist_and_render_inspection(out_path, [inspect_rec])
             done.add(key)
             n_done += 1
             logger.info("cell {} done in {:.1f}s — qid={} L{} model={}",
@@ -667,7 +675,9 @@ def main() -> int:
     if not rows_out:
         logger.error("no cells produced")
         return 1
-    _persist_and_render_inspection(out_path, inspect_recs)
+    # Records were already persisted per cell; empty call = md regen only
+    # (keeps the bundle fresh even in surplus no-op windows).
+    _persist_and_render_inspection(out_path, [])
     _print_summary(pd.DataFrame(rows_out))
     return 0 if n_failed == 0 else 2
 
