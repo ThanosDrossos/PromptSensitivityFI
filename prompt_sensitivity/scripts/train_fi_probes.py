@@ -260,6 +260,9 @@ def main() -> int:
     ap.add_argument("--targets", default="aufi_in,h_sem_mean",
                     help="metric columns; f_graded_per_paraphrase for per-prompt (v3+)")
     ap.add_argument("--n-splits", type=int, default=5)
+    ap.add_argument("--exclude-questions", default="",
+                    help="comma-separated question_ids to drop (e.g. the v3 singleton-"
+                         "universe question, whose N=1 AUFI is a degenerate ceiling)")
     ap.add_argument("--out", default=None,
                     help="results parquet (default data/probe_results_<features-stem>.parquet)")
     args = ap.parse_args()
@@ -274,6 +277,12 @@ def main() -> int:
         logger.error("feature dump invalid: {}", problems)
         return 1
     hs["question_id"] = hs["question_id"].astype(str)
+    excl = {q.strip() for q in args.exclude_questions.split(",") if q.strip()}
+    if excl:
+        before = hs.question_id.nunique()
+        hs = hs[~hs.question_id.isin(excl)]
+        logger.info("excluded {} question(s): {} -> {} questions",
+                    len(excl), before, hs.question_id.nunique())
     metrics = pd.read_parquet(root / args.labels)
     layers = sorted(hs["layer_idx"].unique())
     logger.info("features: {} rows, layers {}, {} questions",
