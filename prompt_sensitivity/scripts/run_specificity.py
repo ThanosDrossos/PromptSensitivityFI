@@ -34,6 +34,7 @@ from ..logging_setup import configure_logging
 from ..metrics import build_metric_tuple
 from ..metrics.fi_in import aufi_in_from_scores
 from ..metrics.fi_spec import fi_spec_bits
+from ..metrics.sensitivity_v2 import compute_row_metrics
 from ..metrics.h_sem import cluster_responses_pooled, entropy_from_assignment
 from ..models.embedding import encode_texts
 from ..models.registry import get_client
@@ -455,6 +456,9 @@ def _run_spec_cell(
         row_dict["f_graded_per_paraphrase"] = None
         row_dict["f_graded_mean"] = None
         row_dict["aufi_in_graded"] = None
+    # Sensitivity v2 (METRIC_PROPOSALS M1+M2): rho_F functional ICC + ΔFI
+    # reliability premium — the accuracy-decoupled sensitivity scalars.
+    row_dict.update(compute_row_metrics(f_graded, k_samples))
     # Per-paraphrase H_sem for the P3 probe: SEP predicts PER-PROMPT semantic
     # entropy, but only the cell mean/var was persisted — the probe label was a
     # cell constant. Ordered by paraphrase_idx (joins like f_graded).

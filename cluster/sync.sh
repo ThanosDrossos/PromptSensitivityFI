@@ -91,6 +91,10 @@ PULL_FILES=(
   data/hidden_states_qwen_2_5_7b.parquet
   data/hidden_states_llama_3_1_8b.parquet
   data/hidden_states_mistral_7b_v03.parquet
+  data/sensitivity_v2_k20_qwen_2_5_7b.parquet
+  data/sensitivity_v2_k20_llama_3_1_8b.parquet
+  data/sensitivity_v2_k20_mistral_7b_v03.parquet
+  data/posix_arm_qwen_2_5_7b.parquet
   data/full_llama_3_1_8b.parquet
   data/full_mistral_7b_v03.parquet
   data/full_qwen_2_5_7b.parquet
