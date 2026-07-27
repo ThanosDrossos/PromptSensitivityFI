@@ -50,7 +50,32 @@ status() {
 }
 
 push() { bash "$HERE/sync.sh" push; }
-pull() { bash "$HERE/sync.sh" pull; }
+pull() {
+  bash "$HERE/sync.sh" pull
+  # Post-pull backfill (2026-07-27 gotcha): cluster parquets never carry the
+  # laptop-side sensitivity-v2 columns, so a pull OVERWRITES any locally
+  # backfilled rho_f/fi_premium. Recompute right away — idempotent, seconds,
+  # and byte-identical to the driver path. Best-effort: a missing venv or file
+  # must never fail the pull itself.
+  local py=""
+  [[ -x "$HERE/../.venv/Scripts/python.exe" ]] && py="$HERE/../.venv/Scripts/python.exe"
+  [[ -z "$py" && -x "$HERE/../.venv/bin/python" ]] && py="$HERE/../.venv/bin/python"
+  if [[ -n "$py" ]]; then
+    local files=()
+    for f in "$HERE"/../data/specificity_v3_*.parquet \
+             "$HERE"/../data/sensitivity_v2_k20_*.parquet \
+             "$HERE"/../data/posix_arm_*.parquet; do
+      [[ -f "$f" ]] && files+=("$f")
+    done
+    if [[ ${#files[@]} -gt 0 ]]; then
+      echo ">> post-pull: backfilling sensitivity-v2 columns (${#files[@]} parquet(s))"
+      (cd "$HERE/.." && PYTHONUTF8=1 "$py" -m prompt_sensitivity.scripts.backfill_sensitivity_v2 "${files[@]}") \
+        || echo "   WARNING: backfill failed — run backfill_sensitivity_v2 manually before analysis"
+    fi
+  else
+    echo "   (no local venv found — skip sensitivity-v2 backfill; run it manually)"
+  fi
+}
 smoke() { push; submit; }
 
 case "${1:-}" in
