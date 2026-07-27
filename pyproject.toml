@@ -45,6 +45,9 @@ dev = [
   "pytest-cov>=5.0",
   "ruff>=0.6",
 ]
+app = [
+    "streamlit>=1.60.0",
+]
 
 [build-system]
 requires = ["hatchling"]
