@@ -75,10 +75,20 @@ def _load_model(model_id: str):  # type: ignore[no-untyped-def]
     if use_4bit:
         from transformers import BitsAndBytesConfig
         common = dict(
-            device_map="auto",
+            # {"": 0} pins the whole model to GPU 0, bypassing accelerate's
+            # auto planner — whose conservative headroom reserve refuses to
+            # pack ~4.8 GB into a 6 GB card and then demands CPU offload
+            # (which segfaults bnb 0.50 on Windows).
+            device_map={"": 0},
             quantization_config=BitsAndBytesConfig(
                 load_in_4bit=True, bnb_4bit_quant_type="nf4",
                 bnb_4bit_compute_dtype=torch.bfloat16,
+                # Quantize lm_head too (bnb skips it by default, keeping it
+                # bf16 ~1.1 GB for Qwen's 152k vocab). We only pool hidden
+                # states — logits are never read — and without that block the
+                # 7B doesn't fit a 6 GB GPU and accelerate wants CPU offload,
+                # which segfaults bnb 0.50 on Windows (tested 2026-07-27).
+                llm_int8_skip_modules=[],
             ),
         )
     try:
