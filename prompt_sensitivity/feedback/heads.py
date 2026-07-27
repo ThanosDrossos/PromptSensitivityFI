@@ -152,11 +152,25 @@ def train_head(
         oof[te] = mdl.decision_function(Xte) if binarize else mdl.predict(Xte)
 
     ver: dict[str, float] = {"n": int(len(y)), "n_questions": int(qids.nunique())}
+    rng = np.random.default_rng(seed)
     if binarize:
         ver["auroc"] = float(roc_auc_score(y, oof))
+        # Two null controls — each meaningful for a different label geometry:
+        #  * permuted: shuffle label patterns BETWEEN questions. Meaningful for
+        #    cell-level labels (dispersion/fragility); VACUOUS for a
+        #    within-question label like vagueness, where every question carries
+        #    the identical [L0=1, L1=0] pattern and permutation is a no-op
+        #    (caught on the 2026-07-27 verification run: permuted == real).
+        #  * flip: invert ALL labels of a random half of questions. Meaningful
+        #    exactly in the within-question case; expected ~0.5.
         yperm = permute_labels_by_question(y.astype(float), qids).astype(int)
-        if len(set(yperm)) > 1:
+        if len(set(yperm)) > 1 and (yperm != y).any():
             ver["auroc_permuted"] = float(roc_auc_score(yperm, oof))
+        uq = sorted(qids.unique())
+        flip_q = set(rng.choice(uq, size=len(uq) // 2, replace=False))
+        yflip = np.where(qids.isin(flip_q).to_numpy(), 1 - y, y)
+        if len(set(yflip)) > 1:
+            ver["auroc_flip_control"] = float(roc_auc_score(yflip, oof))
         if prompt_lengths is not None:
             ln = prompt_lengths[keep]
             ver["auroc_length_baseline"] = float(
@@ -164,18 +178,26 @@ def train_head(
     else:
         ver["spearman"] = float(spearmanr(y, oof).statistic)
 
-    # Isotonic calibration on the leakage-free OOF scores.
+    # Isotonic calibration on the leakage-free OOF scores. The SHIPPED
+    # calibrator uses all OOF pairs; the REPORTED ECE is cross-fitted (2 folds
+    # by question: fit on one half's OOF, score the other) — fitting and
+    # evaluating isotonic on the same points gives ECE ~ 0 by construction
+    # (the 2026-07-27 run reported a meaningless 0.000 everywhere).
     target = y.astype(float)
+    eces = []
+    for tr2, te2 in group_folds(qids, 2, seed=seed + 7):
+        iso2 = IsotonicRegression(out_of_bounds="clip")
+        iso2.fit(oof[tr2], target[tr2])
+        cal2 = np.clip(iso2.predict(oof[te2]), 0, 1)
+        t2 = target[te2]
+        which = np.digitize(cal2, np.linspace(0, 1, 11)) - 1
+        eces.append(np.nansum([
+            abs(cal2[which == b].mean() - t2[which == b].mean()) * (which == b).mean()
+            for b in range(10) if (which == b).any()
+        ]))
+    ver["ece"] = float(np.mean(eces))
     iso = IsotonicRegression(out_of_bounds="clip")
     iso.fit(oof, target)
-    cal = np.clip(iso.predict(oof), 0, 1)
-    bins = np.linspace(0, 1, 11)
-    which = np.digitize(cal, bins) - 1
-    ece = float(np.nansum([
-        abs(cal[which == b].mean() - target[which == b].mean()) * (which == b).mean()
-        for b in range(10) if (which == b).any()
-    ]))
-    ver["ece"] = ece
 
     mu, sd = X.mean(0), X.std(0) + 1e-8
     final = make_model()

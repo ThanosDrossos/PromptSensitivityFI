@@ -130,3 +130,14 @@ def test_compose_feedback_messages():
     assert any("no changes suggested" in m for m in good)
     mid = compose_feedback({"vagueness": 0.5, "reliability": 0.5})
     assert any("underspecified" in m for m in mid) and any("MEDIUM" in m for m in mid)
+
+
+def test_flip_control_lands_near_chance_and_ece_is_cross_fitted():
+    X, y, q = _separable()
+    h = train_head("vagueness", X, y, q, binarize=True)
+    v = h.verification
+    assert v["auroc"] > 0.95
+    # flip half the questions' labels -> the SAME scores must lose their edge
+    assert 0.25 < v["auroc_flip_control"] < 0.75
+    # cross-fitted ECE is honest: small on separable data but NOT trivially 0
+    assert 0.0 <= v["ece"] < 0.2
