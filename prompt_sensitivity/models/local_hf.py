@@ -42,25 +42,45 @@ from .schemas import CompletionRequest, LLMRequest, LLMResponse, TokenLogprob
 
 @lru_cache(maxsize=2)
 def _load_model(model_id: str):  # type: ignore[no-untyped-def]
-    """Load `(tokenizer, model)` once per `model_id`, bf16 on CUDA, eval mode.
+    """Load `(tokenizer, model)` once per `model_id`, eval mode.
 
-    Tries FlashAttention-2 and falls back to PyTorch SDPA when flash-attn is not
-    installed (it is an optional, finicky build). `device_map="cuda"` needs
-    `accelerate` (added to pyproject). The lru_cache means re-`get_client` for
-    the same model is free; `cache_clear()` + `torch.cuda.empty_cache()` frees
-    VRAM between models (see scripts/local_check.py).
+    Default (cluster): bf16 on CUDA, exactly as before. Two env overrides for
+    the laptop/live-demo path (app/streamlit_app.py sets them automatically):
+
+      PSF_DEVICE=cpu   bf16 on CPU (no GPU / no CUDA torch build);
+      PSF_4BIT=1       NF4 4-bit via bitsandbytes with device_map="auto" —
+                       fits a 7B on a 6 GB RTX 2060. Hidden states under NF4
+                       differ slightly from the bf16 training features; the
+                       app runs and reports a fidelity check (2026-07-27).
+
+    Tries FlashAttention-2 first, falls back to SDPA. lru_cache: re-get_client
+    is free; cache_clear() + empty_cache() frees VRAM between models.
     """
+    import os
+
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    logger.info("loading local CausalLM {} (bf16, cuda) ...", model_id)
+    device = os.environ.get("PSF_DEVICE", "cuda")
+    use_4bit = os.environ.get("PSF_4BIT", "0") == "1"
+    logger.info("loading local CausalLM {} ({}) ...", model_id,
+                "4-bit NF4" if use_4bit else f"bf16, {device}")
     tok = AutoTokenizer.from_pretrained(model_id)
     if tok.pad_token_id is None:
         # Decoder-only models often ship without a pad token; reuse EOS. We
         # always mask, so this never contaminates pooled embeddings.
         tok.pad_token = tok.eos_token
 
-    common: dict[str, Any] = dict(torch_dtype=torch.bfloat16, device_map="cuda")
+    common: dict[str, Any] = dict(torch_dtype=torch.bfloat16, device_map=device)
+    if use_4bit:
+        from transformers import BitsAndBytesConfig
+        common = dict(
+            device_map="auto",
+            quantization_config=BitsAndBytesConfig(
+                load_in_4bit=True, bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch.bfloat16,
+            ),
+        )
     try:
         model = AutoModelForCausalLM.from_pretrained(
             model_id, attn_implementation="flash_attention_2", **common

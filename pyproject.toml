@@ -49,6 +49,19 @@ app = [
     "streamlit>=1.60.0",
 ]
 
+# --- OPT-IN: CUDA torch for the laptop's RTX 2060 (live custom-prompt mode) --
+# Blocked 2026-07-27 by disk space (needs ~13 GB free: ~3.5 GB wheel cache +
+# ~9 GB installed). After freeing space, UNCOMMENT the two blocks below and run
+#   uv sync --extra app --extra dev
+# Linux (cluster) is unaffected either way — its PyPI wheel bundles CUDA.
+# [tool.uv.sources]
+# torch = [{ index = "pytorch-cu128", marker = "sys_platform == 'win32'" }]
+#
+# [[tool.uv.index]]
+# name = "pytorch-cu128"
+# url = "https://download.pytorch.org/whl/cu128"
+# explicit = true
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

@@ -289,16 +289,32 @@ uniform-evidence prompts; grouped-OOF verified (see the Verification tab).*
                         + (f"cell ρ_F: **{lab.fragility:.2f}**" if np.isfinite(lab.fragility)
                            else "cell ρ_F: n/a (no variance)"))
         else:
-            st.info("This mode embeds your prompt with the actual target model "
-                    "(one forward pass). It needs the model weights + GPU — run the app "
-                    "on the cluster, or expect a clear failure message here.")
-            st.caption("⚠ Off-distribution caveat: heads were trained on prompts that "
-                       "carry an evidence context block; a bare prompt is a mechanism "
-                       "demo, not a calibrated judgment.")
+            import torch
+            cuda = torch.cuda.is_available()
+            if cuda:
+                vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
+                if vram_gb < 12:
+                    os.environ["PSF_4BIT"] = "1"       # 7B NF4 fits a 6 GB RTX 2060
+                    dev_note = (f"local GPU ({torch.cuda.get_device_name(0)}, "
+                                f"{vram_gb:.0f} GB) — 4-bit NF4, ~5–15 s per analysis")
+                else:
+                    dev_note = f"local GPU ({torch.cuda.get_device_name(0)}) — bf16"
+            else:
+                os.environ["PSF_DEVICE"] = "cpu"
+                dev_note = ("CPU (bf16) — needs ~15 GB free RAM and 30–90 s per "
+                            "analysis; close other applications first")
+            st.info(f"This mode embeds your prompt with the ACTUAL target model "
+                    f"(one forward pass). Runs entirely on this machine: {dev_note}. "
+                    "First use loads (and completes the download of) the weights.")
+            st.caption("⚠ Two honesty notes: (1) heads were trained on prompts that "
+                       "carry an evidence context block — a bare prompt is somewhat "
+                       "off-distribution; (2) 4-bit quantization perturbs hidden "
+                       "states slightly relative to the bf16 training features.")
             prompt = st.text_area("Your prompt", placeholder="Who has the most wins in history?")
             if st.button("Analyze") and prompt.strip():
                 try:
-                    with st.spinner("Embedding with the target model…"):
+                    with st.spinner(f"Embedding with {MODELS[model_key]} ({dev_note.split(' — ')[0]})… "
+                                    "first run loads the model, later runs are fast"):
                         from prompt_sensitivity.config import load_config
                         from prompt_sensitivity.models.registry import get_client
                         client = get_client(model_key, load_config())
@@ -314,9 +330,9 @@ uniform-evidence prompts; grouped-OOF verified (see the Verification tab).*
                         st.markdown(f"- {msg}")
                 except Exception as exc:  # noqa: BLE001 — surface, don't crash the app
                     st.error(f"Could not run the target model here: {exc}")
-                    st.markdown("Run the app where the model is available, e.g. on the "
-                                "cluster: `uv sync --extra app && uv run streamlit run "
-                                "app/streamlit_app.py`")
+                    st.markdown("Fixes: free RAM/VRAM and retry; ensure the CUDA torch "
+                                "build is installed (`uv sync --extra app --extra dev`); "
+                                "or run the app on the cluster.")
 
 # ------------------------------------------------------------ Verification
 with tab_verif:
