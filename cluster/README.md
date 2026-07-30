@@ -5,6 +5,18 @@ sync, SLURM scheduling, the Python env, gateway reachability, and a GPU-backed
 DeBERTa pass** — before moving any real compute to the cluster. This is a
 roundtrip on a handful of files, **not** the pipeline.
 
+> **Branch note (2026-07-27):** the repo consolidated to a single branch —
+> **`main`** (the former `ambigqa-specificity`; old era branches live on as
+> `archive/*` tags). The documented sync below is branch-independent: `push`
+> rsyncs/tars your local WORKING TREE (`.git` excluded), so it ships whatever
+> is checked out on the laptop. **One-time check** if your cluster copy was
+> ever converted to a git clone (done during the July Lustre incidents):
+> `cd ~/PromptSensitivityFI && git rev-parse --git-dir 2>/dev/null` — if that
+> prints a path, run `git fetch --prune && git checkout main && git reset
+> --hard origin/main` once; deleted-branch refs would otherwise break a
+> cluster-side `git fetch <old-branch>`. If it prints nothing (plain rsync
+> target), there is nothing to do.
+
 bwUniCluster 3.0 is a SLURM-managed HPC at KIT (`uc3.scc.kit.edu`). Login uses
 an SSH key registered through bwIDM (not `~/.ssh/authorized_keys`). Login nodes
 are for setup only; compute goes through `sbatch`. The smoke targets the
