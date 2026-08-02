@@ -156,12 +156,56 @@ pull_tar() {
   # Lustre incident — e.g. the three June leftovers that failed 'Cannot stat' on
   # every 2026-07-06 pull) is SKIPPED with a warning instead of failing the whole
   # archive's exit status. Everything readable still transfers.
+  #
+  # The remote tar's stderr is CAPTURED (not just shown) so we can answer the
+  # only question those scary warnings actually raise: "did I lose anything?"
+  # See skipped_report() — every skipped path is checked against the local tree.
+  local errfile
+  errfile="$(mktemp)"
   $SSH_CMD "$REMOTE" "cd '$REMOTE_DIR' 2>/dev/null || exit 1; items=\$(ls -d cluster_logs data/*.parquet data/*.md data/*.jsonl data/plots 2>/dev/null); [ -n \"\$items\" ] || exit 1; tar czf - --ignore-failed-read \$items" \
+    2> >(tee "$errfile" >&2) \
     | tar xzf - -C . 2>/dev/null \
-    && echo "   pulled cluster_logs + data/*.parquet + data/*.md + data/plots (any
-   'Cannot stat' warnings above = damaged remote files that were skipped)" \
+    && echo "   pulled cluster_logs + data/*.parquet + data/*.md + data/plots" \
     || echo "   PULL FAILED — remote has none of cluster_logs / data/*.parquet /
    data/*.md / data/plots, or the connection died before the stream started."
+  skipped_report "$errfile"
+  rm -f "$errfile"
+}
+
+skipped_report() {
+  # Turn the wall of "Cannot stat" warnings into a verdict.
+  #
+  # WHAT THE WARNING MEANS (diagnosed 2026-08-03): "Cannot send after transport
+  # endpoint shutdown" is errno ESHUTDOWN raised by the REMOTE stat() — the
+  # Lustre client's connection to the OST holding that file's data objects is
+  # gone, so the file is individually unreadable ON THE CLUSTER. The metadata
+  # still exists (hence `ls` shows it), the transfer itself is healthy, and tar
+  # carries on. Evidence it is NOT a flaky SSH/network drop: the same file set
+  # fails across independent pulls hours apart, tar completes normally, and new
+  # files join the set over time as /pfs/data6 degrades further (OST outage
+  # 2026-06-28, evictions 07-04/07-06). Nothing on the laptop side can repair
+  # such a file — but a local copy pulled BEFORE the damage is unaffected, which
+  # is why the check below is what matters.
+  local errfile="$1" skipped n_missing=0
+  skipped="$(sed -n 's/^tar: \(.*\): Warning: Cannot stat.*/\1/p' "$errfile" 2>/dev/null || true)"
+  [[ -z "$skipped" ]] && return 0
+  echo
+  echo ">> $(printf '%s\n' "$skipped" | wc -l) remote file(s) were unreadable on the cluster and skipped."
+  echo "   Checking whether you have them locally:"
+  while IFS= read -r f; do
+    [[ -z "$f" ]] && continue
+    if [[ -e "./$f" ]]; then
+      continue                                  # local copy intact -> nothing lost
+    fi
+    n_missing=$((n_missing + 1))
+    echo "     NOT LOCAL: $f"
+  done <<< "$skipped"
+  if [[ $n_missing -eq 0 ]]; then
+    echo "   ALL of them already exist locally — nothing was lost."
+  else
+    echo "   ^ the $n_missing file(s) above exist ONLY as damaged remote copies."
+    echo "     They cannot be recovered from the cluster; regenerate if needed."
+  fi
 }
 
 # ---- dispatch -------------------------------------------------------------

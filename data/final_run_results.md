@@ -44,9 +44,24 @@ Reading — the dial's payoff REQUIRES evidence and grows with it:
   extractable — evidence raises the ceiling, specificity determines how much
   of it you reach.
 
-## POSIX (llama + mistral, 50-q subset) ⏳ pending
+## POSIX — all three models ✅ (completes the axis-3 literature row)
 
-Chains started 22:12; logs pulled mid-Lustre-eviction contain only the
-"plan:" lines and the parquets had not landed locally. Check `run.sh status`;
-re-pull when quiet (re-submit `submit_final_run.sh posix 3` if the chain
-exhausted before "done:" — fully resume-safe).
+100/100 cells per model, `posix_psi` non-null everywhere, 0 failed (the first
+attempt simply ran out of chain windows; one resubmit finished it). Same 50
+questions × 2 levels as the other arms.
+
+Within-arm Spearman of POSIX ψ (Chatterjee et al. 2024) against the stack:
+
+| model | vs H_sem | vs S_τ | vs TVD-sens | vs accuracy | vs ρ_F | ψ L0→L1 |
+|---|---|---|---|---|---|---|
+| qwen_2_5_7b | +0.63 | +0.59 | **+0.69** | −0.26 | +0.24 | 0.61→0.35 |
+| llama_3_1_8b | +0.43 | +0.35 | **+0.57** | −0.33 | +0.30 | 0.21→0.18 |
+| mistral_7b_v03 | +0.61 | +0.53 | **+0.62** | −0.40 | +0.32 | 0.21→0.19 |
+
+Reading — the "one construct, many costumes" claim now rests on three models,
+not one: POSIX's dominant loadings are on the **output-dispersion** family
+(TVD .57–.69, H_sem .43–.63, S_τ .35–.59), while its correlation with the
+formulation-sensitivity axis stays weak (ρ_F .24–.32). So a published
+prompt-sensitivity index measures dispersion, NOT phrasing-induced
+variability — **ρ_F remains alone on axis 2**. ψ also falls with
+disambiguation in all three models, the same direction as H_sem.
