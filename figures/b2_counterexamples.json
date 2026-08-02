@@ -1,0 +1,50 @@
+{
+ "ex1_rhoF_free": {
+  "mean_F": [
+   0.5,
+   0.5
+  ],
+  "fi_in_curve_a": [
+   -0.0,
+   -0.0,
+   Infinity,
+   Infinity
+  ],
+  "fi_in_curve_b": [
+   1.0,
+   1.0,
+   1.0,
+   1.0
+  ],
+  "rho_F": [
+   0.0,
+   1.0
+  ]
+ },
+ "ex2_hsem_free": {
+  "mean_F": [
+   0.5,
+   0.5
+  ],
+  "h_sem_norm": [
+   1.0,
+   2.0
+  ]
+ },
+ "ex3_accuracy_free": {
+  "h_sem_norm": [
+   -0.0,
+   -0.0
+  ],
+  "mean_F": [
+   1.0,
+   0.0
+  ]
+ },
+ "checks": {
+  "ex1_rho_f_gap": true,
+  "ex1_accuracy_pinned": true,
+  "ex2_hsem_gap": true,
+  "ex3_accuracy_gap": true
+ }
+}
