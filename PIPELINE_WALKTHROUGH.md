@@ -60,6 +60,56 @@ text itself carries*. It is *model-free* — identical for every model by
 construction — which is what makes it a valid manipulated variable (an x-axis,
 not an outcome).
 
+### 2.1 What happens to the multiple interpretations? (one is pinned)
+
+Every question in the study has several annotated interpretations — that is
+the inclusion criterion. Exactly **one** of them is pinned as the
+**measurement target**, chosen deterministically (sha256 of question-id +
+seed: no cherry-picking, and every job, model, and rerun picks the same one).
+The full real example:
+
+> **Q (L0):** "Who won the mayor race in St. Petersburg, Florida?" (m₀ = 3)
+> - [0] "…the **2017** mayor race…" → Kriseman / Rick Kriseman ← **TARGET**
+> - [1] "…the **2013** mayor race…" → Kriseman / Rick Kriseman
+> - [2] "…the **2009** mayor race…" → Foster / Bill Foster
+
+Scoring at BOTH levels credits only the **target's** answer variants
+(semantic NLI match against {"Kriseman", "Rick Kriseman"}); the OR in
+"multi-gold scoring" ranges over the target's *surface variants*, never over
+interpretations:
+
+| model's answer at L0 | a valid reading? | scores |
+|---|---|---|
+| "Rick Kriseman" | yes (2017 — and also 2013) | **1** |
+| "Bill Foster" | yes (2009) | **0** |
+| "Ken Welch" (2021, not annotated) | no | 0 |
+
+So an L0 answer can be a perfectly *valid reading* and still score 0 — by
+design. Crediting every interpretation would (a) let the gold set change
+between levels (union at L0, one answer at L1), reintroducing exactly the
+ground-truth drift the guardrail exists to prevent, and (b) measure a
+different construct — "can the model answer *some* reading" cannot respond to
+disambiguation, whereas "does added wording steer the model to the *intended*
+reading" is the thing FI_spec manipulates. This is why L0 accuracy sits near
+the pick-the-right-reading baseline (~1/m₀) and rises when L1 pins the
+reading — e.g. the Mussolini cell (person-vs-party): at L0 the model
+consistently answered a *different valid* interpretation (F = 0), at L1 F = 1.
+
+The non-target interpretations are **not discarded** — they do three jobs:
+they set m₀ (the dial's denominator, here log₂3 = 1.58 bits); their answer
+**union** is the validity constraint for L0 *paraphrases* (a faithful
+rephrasing of an ambiguous question must preserve *any* reading's answer —
+judging L0 paraphrases against only the target rejected 100% of valid ones, a
+bug found and fixed 2026-07); and the model's drift across readings at L0 is
+exactly what axis 3 (H_sem) registers as dispersion.
+
+One honest quirk this example exposes: interpretations can **collide** on the
+same answer (Kriseman won 2013 *and* 2017). At L0, "Kriseman" then scores 1
+even if the model meant 2013 — fixed-gold scoring credits the surface answer,
+not the intended reading. Collisions inflate L0 accuracy, which *shrinks* the
+measured L0→L1 gain — i.e. the bias is conservative, against our own
+hypothesis, never for it.
+
 **The two guardrails** (the design's load-bearing walls):
 
 1. **Fixed gold.** The scoring answer is the *target interpretation's* answer
