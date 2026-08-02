@@ -515,6 +515,9 @@ def _run_spec_cell(
     # evidence bundle was kept — spec_level semantics depend on the ladder.
     row_dict["ladder"] = ladder
     row_dict["evidence_fraction"] = float(evidence_fraction)
+    # Dataset-side collision flag (2026-08-02): lets analyses split or reweight
+    # cells where the target's answer is shared with another interpretation.
+    row_dict["target_collision"] = bool(row.target_collision)
     # FI_out over the FIXED answer space: log2(m0) - H_sem. fi_out_mean uses the
     # observed |A_q|, which itself shrinks with specificity, so its sign is not
     # interpretable for the hypothesis (2026-07-06 finding; mirrors

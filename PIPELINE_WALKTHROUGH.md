@@ -225,8 +225,14 @@ Three candidate mechanisms, differing in what gets constructed:
 | **(2) mechanical disjunction** | template over **annotator** Q_i texts ("…in 2001, or in 2003?") | exact **by construction** | register: explicitly enumerated ambiguity ≠ vague wording |
 | **(3) LLM rewrite** *(built, incl. judge gates + human-review file)* | Phi-4, gated | LLM-judged + human eyeball — **categorically weaker than annotation** | reviewer surface: a machine-written question text on the x-axis |
 
-Current recommendation on record: (1) always (free), (2) if a within-question
-mid-level is wanted, (3) shelved.
+**DECIDED (2026-08-02): no constructed mid-level at all.** Option (3) brings
+LLM-judge label risk, option (2) measures a different phenomenon (explicit
+enumeration, not vague wording) — both rejected; the code stays shelved in
+the repo, unlaunched. The dose-response question is answered by option (1),
+a pure analysis of existing data. Additionally, **target-answer collisions
+are now collected** (`target_collision` column: driver-emitted for future
+runs, backfilled into all existing parquets — 7.1% of the AmbigQA pool, 10%
+of the v3 sample) so collision cells can be split out or reweighted later.
 
 ### 8.2 C6 — evidence dial *(approved, built)*
 
@@ -287,11 +293,19 @@ compute runs (only relevant if option 3 of §8.1 is ever chosen).
 
 ---
 
-## 9. Open decisions
+## 9. Final approved scope (all decisions made 2026-08-02)
 
-1. **§8.1** — mid-level mechanism: (1) across-question only, (2) mechanical
-   disjunction, or (3) LLM rewrite?
-2. **§8.4** — CondAmbigQA mode: (a) safe / (b) full?
-
-Everything else is approved and built; the run starts with the two decisions
-above.
+- **No constructed mid-level ladder** (§8.1: dead) and **no second dataset**
+  (§8.4: CondAmbigQA dead — its gold answers are long-form, median 36 words,
+  incompatible with our short-span scoring). The 2-level AmbigQA design
+  stands as-is; the uniform pinned target stays, with **collision flags
+  collected** for later reweighting.
+- The last cluster run = three independent, cache-friendly phases:
+  `bash cluster/submit_final_run.sh posix` (llama+mistral POSIX, 50-q
+  comparison subset), `... dial` (qwen evidence fractions 0.0/0.5), and
+  `... holdout` (TBG dump of all 2,002 AmbigQA questions incl. the 830
+  annotator-labeled non-ambiguous ones — the frozen vagueness head's
+  held-out test, no gold or scoring involved).
+- After the pull: `eval_vagueness_holdout.py` (frozen heads, OOD AUROC),
+  the dial/POSIX analyses, the across-question dose regression, and then
+  the paper.

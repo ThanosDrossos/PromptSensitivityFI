@@ -1,4 +1,8 @@
 #!/bin/bash
+# SHELVED (2026-08-02, user decision): the multi-level L_mid ladder is NOT
+# part of the approved final run (LLM-generated question texts = dataset-
+# construction risk; disjunction variant = different phenomenon). Code and
+# tests stay for possible future use. Do not submit.
 # Multi-level ladder FULL run (FINAL_PHASE_PLAN C1): 100 q (m0 in 3..5) x 3
 # levels (L0 / L_mid / L_top = spec_level 0/1/2), k=10, N=10, uniform evidence,
 # graded track. LAUNCH ONLY AFTER the human review of data/ml_review_sample.md
