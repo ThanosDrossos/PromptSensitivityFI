@@ -173,7 +173,17 @@ def main() -> int:
                     help="fractional transformer depths for the TBG states")
     ap.add_argument("--context-mode", choices=["closed_book", "uniform_evidence"], default=None)
     ap.add_argument("--out-template", type=str, default="data/hidden_states_{model}.parquet")
+    # C1/C6 mirrors of run_specificity — the dump must reproduce the run's
+    # prompts bit-identically or the probe join is silently wrong.
+    ap.add_argument("--ladder", choices=["two", "multilevel"], default="two")
+    ap.add_argument("--ml-m0-min", type=int, default=3)
+    ap.add_argument("--ml-m0-max", type=int, default=5)
+    ap.add_argument("--mid-cache", type=str, default="data/midlevel_questions.parquet")
+    ap.add_argument("--paraphrase-cache", type=str, default=None)
+    ap.add_argument("--evidence-fraction", type=float, default=1.0)
     args = ap.parse_args()
+    if args.ladder == "multilevel" and args.paraphrase_cache is None:
+        args.paraphrase_cache = "data/paraphrases_ambigqa_ml.parquet"
 
     configure_logging("dump_hidden_states")
     config = load_config()
@@ -188,10 +198,13 @@ def main() -> int:
             return 1
 
     rows, _questions, context_mode, evidence_max_chars = load_spec_rows(
-        config, n_questions=args.n_questions, context_mode=args.context_mode
+        config, n_questions=args.n_questions, context_mode=args.context_mode,
+        ladder=args.ladder, ml_m0_min=args.ml_m0_min, ml_m0_max=args.ml_m0_max,
+        mid_cache=args.mid_cache, mid_generate=False,  # cache-only contract
+        evidence_fraction=args.evidence_fraction,
     )
 
-    ppath = root / _AMBIGQA_PARAPHRASE_PARQUET
+    ppath = root / (args.paraphrase_cache or _AMBIGQA_PARAPHRASE_PARQUET)
     if not ppath.exists():
         logger.error("paraphrase cache {} not found — run prep first", ppath)
         return 1

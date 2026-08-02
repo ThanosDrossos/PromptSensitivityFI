@@ -70,8 +70,8 @@ def test_main_frees_generator_vram_between_prep_and_eval(monkeypatch, tmp_path):
     monkeypatch.setattr(rs, "load_ambigqa", lambda **kw: [q])
     monkeypatch.setattr(
         rs, "_generate_spec_paraphrases",
-        lambda cfg, rows, mp: (calls.append("prep"),
-                               {(r.question_id, r.spec_level): ["p"] for r in rows})[1],
+        lambda cfg, rows, mp, **kw: (calls.append("prep"),
+                                     {(r.question_id, r.spec_level): ["p"] for r in rows})[1],
     )
     monkeypatch.setattr(rs, "_free_vram", lambda: calls.append("free"))
     monkeypatch.setattr(

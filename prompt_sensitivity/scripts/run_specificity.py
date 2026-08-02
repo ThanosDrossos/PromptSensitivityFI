@@ -40,7 +40,8 @@ from ..models.embedding import encode_texts
 from ..models.registry import get_client
 from ..scoring.nli_with_gold import f_score_batch_multi_gold
 from ..data.schemas import HotpotParagraph
-from ..specificity.build_levels import SpecRow, build_spec_levels, target_in_evidence
+from ..specificity.build_levels import (
+    SpecRow, build_spec_levels, build_spec_levels_multilevel, target_in_evidence)
 from .e2e_smoke import _assemble_messages, _checkpoint, _clustering_inputs, _sample_response
 from .local_check import _free_vram
 
@@ -112,10 +113,21 @@ def load_spec_rows(
     *,
     n_questions: int | None = None,
     context_mode: str | None = None,
+    ladder: str = "two",
+    ml_m0_min: int = 3,
+    ml_m0_max: int = 5,
+    mid_cache: str | None = None,
+    mid_generate: bool = True,
+    evidence_fraction: float = 1.0,
 ) -> tuple[list[SpecRow], list[AmbigQuestion], str, int]:
     """Shared question -> SpecRow builder (deterministic: same filter, seed,
     order, evidence). Used by BOTH the run driver and the hidden-state dump so
     their prompts are bit-identical (FI probes join on (qid, level, para_idx)).
+
+    ladder="multilevel" (C1): m0-in-[min,max] pool, gated L_mid rewrites from
+    the mid-cache (generated on demand + persisted), 3 rows per question.
+    evidence_fraction (C6): deterministic snippet trim, identical across
+    levels + paraphrases.
 
     Returns (rows, questions, resolved_context_mode, evidence_max_chars).
     Raises RuntimeError on config/data problems (callers log + exit).
@@ -150,15 +162,71 @@ def load_spec_rows(
         ambiguous = [q for q in ambiguous if target_in_evidence(q, seed=target_seed)]
         logger.info("evidence-coverage filter: {} -> {} questions (target answer in bundle)",
                     n_before, len(ambiguous))
+    if ladder == "multilevel":
+        # C1 pool: m0 in [ml_m0_min, ml_m0_max] — subset rewrites degrade beyond
+        # ~5 interpretations; m0>=3 is structurally required for a middle level.
+        n_before = len(ambiguous)
+        ambiguous = [q for q in ambiguous if ml_m0_min <= q.m0() <= ml_m0_max]
+        logger.info("multilevel m0-filter [{}..{}]: {} -> {} questions",
+                    ml_m0_min, ml_m0_max, n_before, len(ambiguous))
     questions = ambiguous[:n_q]
     if not questions:
         raise RuntimeError("no AmbigQA questions left after filtering; bailing")
     rows: list[SpecRow] = []
-    for q in questions:
-        rows.extend(build_spec_levels(
-            q, seed=target_seed,
-            include_evidence=mode == "uniform_evidence",
-        ))
+    if ladder == "multilevel":
+        from ..specificity.midlevel import (
+            append_mid_cache, generate_mid_question, load_mid_cache)
+
+        mid_path = config.repo_root() / (mid_cache or "data/midlevel_questions.parquet")
+        mids = load_mid_cache(mid_path)
+        n_gen = n_failed = 0
+        kept: list = []
+        for q in questions:
+            mid = mids.get(q.id)
+            if mid is None or mid.seed != target_seed:
+                if not mid_generate:
+                    # cache-only caller (hidden-state dump): a missing rewrite
+                    # is a skip, never a Phi-4 load.
+                    n_failed += 1
+                    continue
+                n_gen += 1
+                logger.info("L_mid generate {}: qid={} (m0={})", n_gen, q.id, q.m0())
+                mid = generate_mid_question(q, seed=target_seed, config=config)
+                append_mid_cache(mid_path, mid)
+                mids[q.id] = mid
+            if mid.outcome != "accepted":
+                n_failed += 1
+                continue
+            kept.append(q)
+            rows.extend(build_spec_levels_multilevel(
+                q, seed=target_seed, mid_text=mid.text,
+                mid_subset=mid.subset,
+                include_evidence=mode == "uniform_evidence",
+            ))
+        # Coverage discipline (mirrors rho_F): report exclusions, never hide them.
+        logger.info("multilevel gate coverage: {}/{} questions have an accepted "
+                    "L_mid ({} newly generated, {} failed -> excluded)",
+                    len(kept), len(questions), n_gen, n_failed)
+        questions = kept
+        if not questions:
+            raise RuntimeError("no questions with an accepted L_mid rewrite; bailing")
+    else:
+        for q in questions:
+            rows.extend(build_spec_levels(
+                q, seed=target_seed,
+                include_evidence=mode == "uniform_evidence",
+            ))
+    if evidence_fraction < 1.0:
+        # C6 evidence dial: keep the first ceil(f*n) snippets — deterministic
+        # (dataset snippet order is stable) and IDENTICAL across levels +
+        # paraphrases of a question, so evidence stays a controlled variable.
+        import math as _math
+        rows = [
+            r.model_copy(update={"evidence": r.evidence[
+                : _math.ceil(evidence_fraction * len(r.evidence))]})
+            for r in rows
+        ]
+        logger.info("evidence-fraction {}: snippets trimmed per cell", evidence_fraction)
     logger.info("context_mode={} (evidence cap {} chars)", mode, evidence_max_chars)
     return rows, questions, mode, evidence_max_chars
 
@@ -204,18 +272,21 @@ def _graded_f_scores(
 
 
 def _generate_spec_paraphrases(
-    config, rows: list[SpecRow], max_paraphrases: int
+    config, rows: list[SpecRow], max_paraphrases: int,
+    paraphrase_cache: str | None = None,
 ) -> dict[tuple[str, int], list[str]]:
     """Build (and persist) the paraphrase universe per (question_id, spec_level).
 
     Each LEVEL has its own universe over its own question text — the NLI
     equivalence filter keeps specificity constant WITHIN a level. Cached in
-    data/paraphrases_ambigqa.parquet keyed by (question_id, spec_level); a
-    question that yields nothing falls back to its own text as a singleton.
+    `paraphrase_cache` (default data/paraphrases_ambigqa.parquet) keyed by
+    (question_id, spec_level); a question that yields nothing falls back to its
+    own text as a singleton. The multilevel ladder passes its OWN cache — the
+    (qid, 1) key means "disambiguated" here but "L_mid" there.
     """
     from ..paraphrases.pipeline import build_paraphrase_set
 
-    parquet_path = config.repo_root() / _AMBIGQA_PARAPHRASE_PARQUET
+    parquet_path = config.repo_root() / (paraphrase_cache or _AMBIGQA_PARAPHRASE_PARQUET)
 
     persisted: dict[tuple[str, int], list[str]] = {}
     if parquet_path.exists():
@@ -251,7 +322,10 @@ def _generate_spec_paraphrases(
         #      against one interpretation rejected 100% of them (2026-07-06).
         #   L1 (disambiguated) -> the target answer's surface variants only.
         # The SCORING gold (row.target_answers, fixed across levels) is untouched.
-        gold_set = row.all_answers if row.spec_level == 0 else row.target_answers
+        # Multi-level L_mid rows carry an explicit constraint (the admitted
+        # subset's answer union); otherwise the two-level rule applies.
+        gold_set = row.constraint_answers or (
+            row.all_answers if row.spec_level == 0 else row.target_answers)
         try:
             pset = build_paraphrase_set(
                 f"{row.question_id}::L{row.spec_level}",
@@ -318,6 +392,8 @@ def _run_spec_cell(
     context_mode: str = "uniform_evidence",
     evidence_max_chars: int = 6000,
     posix: bool = False,
+    ladder: str = "two",
+    evidence_fraction: float = 1.0,
 ) -> tuple[dict, dict | None]:
     """One (SpecRow, model) cell -> (flat result row, inspection record | None).
     Mirrors the e2e binary (non-CoT) path but scores with the multi-gold OR and
@@ -435,6 +511,10 @@ def _run_spec_cell(
     row_dict["f_mean_permissive"] = float(np.mean(f_scores_perm)) if f_scores_perm else None
     row_dict["context_mode"] = context_mode
     row_dict["n_evidence_snippets"] = len(ev_paragraphs)
+    # Arm bookkeeping (C1/C6): which ladder produced this row + how much of the
+    # evidence bundle was kept — spec_level semantics depend on the ladder.
+    row_dict["ladder"] = ladder
+    row_dict["evidence_fraction"] = float(evidence_fraction)
     # FI_out over the FIXED answer space: log2(m0) - H_sem. fi_out_mean uses the
     # observed |A_q|, which itself shrinks with specificity, so its sign is not
     # interpretable for the hypothesis (2026-07-06 finding; mirrors
@@ -538,6 +618,29 @@ def _parse_args() -> argparse.Namespace:
                              "chain, then per-model eval chains in parallel)")
     parser.add_argument("--out", type=str, default="data/specificity_metrics.parquet")
     parser.add_argument("--dry-run", action="store_true")
+    # ---- multi-level ladder (FINAL_PHASE_PLAN C1) ----
+    parser.add_argument("--ladder", choices=["two", "multilevel"], default="two",
+                        help="'multilevel' = L0/L_mid/L_top (spec_level 0/1/2) on "
+                             "m0>=3 questions via gated partial disambiguation; "
+                             "REQUIRES its own --out and --paraphrase-cache")
+    parser.add_argument("--ml-m0-min", type=int, default=3)
+    parser.add_argument("--ml-m0-max", type=int, default=5,
+                        help="m0 range for the multilevel pool (subset-rewrite "
+                             "quality degrades beyond ~5 interpretations)")
+    parser.add_argument("--mid-cache", type=str,
+                        default="data/midlevel_questions.parquet",
+                        help="persisted L_mid rewrites + gate outcomes")
+    parser.add_argument("--paraphrase-cache", type=str, default=None,
+                        help="override the paraphrase-universe parquet. The "
+                             "multilevel ladder MUST NOT share the two-level "
+                             "cache: (qid, spec_level=1) means 'disambiguated' "
+                             "there but 'L_mid' here (default auto-separates)")
+    # ---- evidence dial (FINAL_PHASE_PLAN C6) ----
+    parser.add_argument("--evidence-fraction", type=float, default=1.0,
+                        help="keep the first ceil(f*n) evidence snippets, "
+                             "identical across levels+paraphrases (0.0 = "
+                             "closed-book). Use a DISTINCT --out per fraction: "
+                             "the resume key ignores this knob")
     return parser.parse_args()
 
 
@@ -547,9 +650,17 @@ def main() -> int:
     config = load_config()
     repo_root = config.repo_root()
 
+    if args.ladder == "multilevel" and args.paraphrase_cache is None:
+        # Hard auto-separation: (qid, spec_level=1) means "disambiguated" in the
+        # two-level cache but "L_mid" here — sharing would poison both ladders.
+        args.paraphrase_cache = "data/paraphrases_ambigqa_ml.parquet"
+        logger.info("multilevel ladder -> paraphrase cache {}", args.paraphrase_cache)
     try:
         rows, questions, context_mode, evidence_max_chars = load_spec_rows(
-            config, n_questions=args.n_questions, context_mode=args.context_mode
+            config, n_questions=args.n_questions, context_mode=args.context_mode,
+            ladder=args.ladder, ml_m0_min=args.ml_m0_min, ml_m0_max=args.ml_m0_max,
+            mid_cache=args.mid_cache, evidence_fraction=args.evidence_fraction,
+            mid_generate=not args.dry_run,  # a dry run must never load Phi-4
         )
     except RuntimeError as exc:
         logger.error("{}", exc)
@@ -580,7 +691,8 @@ def main() -> int:
         return 0
 
     # --- paraphrase universes (per question x level) -------------------------
-    paraphrases = _generate_spec_paraphrases(config, rows, args.max_paraphrases)
+    paraphrases = _generate_spec_paraphrases(
+        config, rows, args.max_paraphrases, paraphrase_cache=args.paraphrase_cache)
 
     if args.prep_only:
         # v3 topology (FI_PROBES_PLAN.md §4): ONE prep chain builds every
@@ -648,6 +760,8 @@ def main() -> int:
                     context_mode=context_mode,
                     evidence_max_chars=evidence_max_chars,
                     posix=args.posix,
+                    ladder=args.ladder,
+                    evidence_fraction=args.evidence_fraction,
                 )
             except Exception:  # noqa: BLE001 — isolate cell failures
                 n_failed += 1

@@ -95,6 +95,19 @@ PULL_FILES=(
   data/sensitivity_v2_k20_llama_3_1_8b.parquet
   data/sensitivity_v2_k20_mistral_7b_v03.parquet
   data/posix_arm_qwen_2_5_7b.parquet
+  data/posix_arm_llama_3_1_8b.parquet
+  data/posix_arm_mistral_7b_v03.parquet
+  data/smoke_specificity_ml.parquet
+  data/specificity_ml_qwen_2_5_7b.parquet
+  data/specificity_ml_llama_3_1_8b.parquet
+  data/specificity_ml_mistral_7b_v03.parquet
+  data/hidden_states_ml_qwen_2_5_7b.parquet
+  data/hidden_states_ml_llama_3_1_8b.parquet
+  data/hidden_states_ml_mistral_7b_v03.parquet
+  data/midlevel_questions.parquet
+  data/ml_review_sample.md
+  data/evidence_dial_f00_qwen_2_5_7b.parquet
+  data/evidence_dial_f05_qwen_2_5_7b.parquet
   data/full_llama_3_1_8b.parquet
   data/full_mistral_7b_v03.parquet
   data/full_qwen_2_5_7b.parquet
