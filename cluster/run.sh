@@ -71,6 +71,9 @@ pull() {
       echo ">> post-pull: backfilling sensitivity-v2 columns (${#files[@]} parquet(s))"
       (cd "$HERE/.." && PYTHONUTF8=1 "$py" -m prompt_sensitivity.scripts.backfill_sensitivity_v2 "${files[@]}") \
         || echo "   WARNING: backfill failed — run backfill_sensitivity_v2 manually before analysis"
+      echo ">> post-pull: backfilling target_collision flags"
+      (cd "$HERE/.." && PYTHONUTF8=1 "$py" -m prompt_sensitivity.scripts.backfill_collisions "${files[@]}") \
+        || echo "   WARNING: collision backfill failed — run backfill_collisions manually"
     fi
   else
     echo "   (no local venv found — skip sensitivity-v2 backfill; run it manually)"

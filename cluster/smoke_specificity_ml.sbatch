@@ -1,4 +1,5 @@
 #!/bin/bash
+# SHELVED (2026-08-02, user decision): see run_specificity_ml.sbatch.
 # Multi-level ladder SMOKE gate (FINAL_PHASE_PLAN C1): 5 questions x 3 levels
 # x qwen. Validates, before the full ML run burns compute:
 #   1. L_mid generation + admits-exactly-subset gate end-to-end on Phi-4

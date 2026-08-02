@@ -54,6 +54,13 @@ class SpecRow(BaseModel):
     # default rule (all_answers at level 0, target_answers above). Never a
     # scoring gold — target_answers stays the fixed guardrail.
     constraint_answers: list[str] | None = None
+    # Does the pinned target share an answer (casefold) with any OTHER
+    # interpretation (e.g. Kriseman won both the 2013 and 2017 races)? Such
+    # collisions inflate L0 accuracy (the surface answer scores 1 even when the
+    # model meant the other reading), which SHRINKS the measured L0->L1 gain —
+    # a conservative bias. Collected per user decision 2026-08-02 so collision
+    # cells can be split out or metrics re-weighted later without a re-run.
+    target_collision: bool = False
 
 
 def choose_target_idx(question_id: str, m0: int, *, seed: int) -> int:
@@ -62,6 +69,17 @@ def choose_target_idx(question_id: str, m0: int, *, seed: int) -> int:
         raise ValueError("m0 must be positive")
     digest = hashlib.sha256(f"{question_id}::{seed}".encode("utf-8")).hexdigest()
     return int(digest, 16) % m0
+
+
+def target_has_collision(q: AmbigQuestion, target_idx: int) -> bool:
+    """True when the target's answer set overlaps (casefold) another
+    interpretation's — see SpecRow.target_collision."""
+    tset = {a.casefold() for a in q.interpretations[target_idx].answers}
+    return any(
+        tset & {a.casefold() for a in interp.answers}
+        for j, interp in enumerate(q.interpretations)
+        if j != target_idx
+    )
 
 
 def build_spec_levels(
@@ -86,6 +104,7 @@ def build_spec_levels(
         m0=m0,
         target_idx=idx,
         evidence=list(q.evidence) if include_evidence else [],
+        target_collision=target_has_collision(q, idx),
     )
     return [
         SpecRow(spec_level=0, question_text=q.question, m_valid=m0, **common),
@@ -150,6 +169,7 @@ def build_spec_levels_multilevel(
         m0=m0,
         target_idx=idx,
         evidence=list(q.evidence) if include_evidence else [],
+        target_collision=target_has_collision(q, idx),
     )
     return [
         SpecRow(spec_level=0, question_text=q.question, m_valid=m0, **common),

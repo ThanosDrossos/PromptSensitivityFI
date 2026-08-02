@@ -81,3 +81,27 @@ def test_target_choice_deterministic_and_seed_sensitive():
     assert len(idxs) > 1                                      # seed actually matters
     idxs_q = {choose_target_idx(f"q{i}", 5, seed=42) for i in range(30)}
     assert len(idxs_q) > 1                                    # id actually matters
+
+
+def test_target_collision_flag():
+    from prompt_sensitivity.data.ambigqa_schemas import AmbigInterpretation, AmbigQuestion
+    from prompt_sensitivity.specificity.build_levels import target_has_collision
+
+    q = AmbigQuestion(
+        id="qc", question="Who won the race?",
+        interpretations=[
+            AmbigInterpretation(disambiguated_question="Who won the 2013 race?",
+                                answers=["Kriseman", "Rick Kriseman"]),
+            AmbigInterpretation(disambiguated_question="Who won the 2017 race?",
+                                answers=["kriseman"]),                 # casefold collide
+            AmbigInterpretation(disambiguated_question="Who won the 2009 race?",
+                                answers=["Foster"]),
+        ],
+    )
+    assert target_has_collision(q, 0)      # shares with [1]
+    assert target_has_collision(q, 1)      # shares with [0]
+    assert not target_has_collision(q, 2)  # Foster is unique
+    # the flag rides on every SpecRow of the question, identical across levels
+    rows = build_spec_levels(q, seed=42)
+    assert rows[0].target_collision == rows[1].target_collision
+    assert rows[0].target_collision == target_has_collision(q, rows[0].target_idx)

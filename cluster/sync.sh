@@ -108,6 +108,9 @@ PULL_FILES=(
   data/ml_review_sample.md
   data/evidence_dial_f00_qwen_2_5_7b.parquet
   data/evidence_dial_f05_qwen_2_5_7b.parquet
+  data/vagueness_holdout_qwen_2_5_7b.parquet
+  data/vagueness_holdout_llama_3_1_8b.parquet
+  data/vagueness_holdout_mistral_7b_v03.parquet
   data/full_llama_3_1_8b.parquet
   data/full_mistral_7b_v03.parquet
   data/full_qwen_2_5_7b.parquet
