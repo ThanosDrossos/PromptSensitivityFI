@@ -164,20 +164,24 @@ def build_section(prs, root):
     s = kit_slide(prs, "The four quantities, defined",
                   "Same ruler throughout — only the space being counted changes.")
     add_figure(s, root, "definitions", top=Inches(1.55), height=Inches(4.85))
-    add_takeaway(s, "“Phrasing-luck cost” = AUFI: the bits of rephrasing luck a question demands.",
+    add_takeaway(s, "AUFI_in summarises the FI_in(k) curve in one number: the bits of rephrasing-rarity a question demands.",
                  top=Inches(6.42))
 
     # 4 · result 1 ---------------------------------------------------------
-    s = kit_slide(prs, "Result 1 — specificity buys robustness",
-                  "Same questions, same evidence; only the wording gains +1.6 bits of specificity (FI_spec).")
+    s = kit_slide(prs, "Result 1 — effect of question specificity",
+                  "Paired within question: identical evidence and gold answer; only the question text changes "
+                  "(FI_spec 0 → 1.58 bits). n = 149 × 3 models.")
     add_figure(s, root, "headline", height=Inches(4.3))
-    add_takeaway(s, "Accuracy ≈ doubles, phrasing-luck cost −0.8 bits, answers converge — all 3 models, p ≤ 5e-9.")
+    add_takeaway(s, "ΔF̄ = +0.22…+0.25 · ΔAUFI_in = −0.79…−0.87 bits · ΔH_sem < 0 — "
+                    "all 3 models, Wilcoxon signed-rank p ≤ 5e-9.")
 
     # 5 · result 2 ---------------------------------------------------------
-    s = kit_slide(prs, "Result 2 — but only when the model can find the answer",
-                  "Same experiment repeated with 0 %, 50 % and 100 % of the supporting evidence snippets.")
+    s = kit_slide(prs, "Result 2 — specificity × evidence interaction",
+                  "Same 50 questions re-run with 0 %, 50 % and 100 % of the retrieved evidence snippets "
+                  "(identical across both specificity levels).")
     add_figure(s, root, "dial", height=Inches(4.3))
-    add_takeaway(s, "Closed-book: specificity buys nothing. The two levers multiply — they do not add.")
+    add_takeaway(s, "ΔF̄ = +0.02 / +0.10 / +0.24 and ΔAUFI_in = −0.05 / −0.31 / −0.83 bits "
+                    "at 0 / 50 / 100 % evidence — the two factors interact.")
 
     # 6 · result 3 ---------------------------------------------------------
     s = kit_slide(prs, "Result 3 — the three measures are genuinely different",
