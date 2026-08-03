@@ -34,7 +34,7 @@ def fig_definitions(out):
          r"$FI_{in}(q,k)\;=\;-\log_2\!\left(\dfrac{N_k(q)}{|U_q|}\right)$",
          "Of all rephrasings $U_q$ of question $q$, what fraction still reaches quality $k$?\n"
          "0 bits = every phrasing works · 3.3 bits = only 1 in 10 works.\n"
-         r"Area under the curve over $k$ = $AUFI$ = the “phrasing-luck cost”."),
+         r"$AUFI_{in}=\int_0^1 FI_{in}(q,k)\,dk$ summarises the whole curve in one number."),
         (C_SENS, "SENSITIVITY",
          r"$\rho_F\;=\;\dfrac{MS_B-MS_W}{MS_B+(k-1)\,MS_W}$",
          "One-way ICC over the rephrasings: the share of success variance caused by\n"

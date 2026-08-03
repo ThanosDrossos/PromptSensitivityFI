@@ -45,9 +45,12 @@ def fig_headline(root, out):
     d = _v3(root)
     fig, axes = plt.subplots(1, 3, figsize=(13.5, 4.4))
     panels = [
-        ("f_graded_mean", "Accuracy", "higher = better", False),
-        ("aufi_in_graded", "Phrasing-luck cost (bits)", "lower = better", True),
-        ("h_sem_mean", "Answer scatter (bits)", "lower = better", True),
+        ("f_graded_mean", r"$\bar{F}$  (graded accuracy)",
+         r"mean over rephrasings of $P(\mathrm{correct}\,|\,x)$ · higher = better", False),
+        ("aufi_in_graded", r"$AUFI_{in}$  (bits)",
+         r"$\int_0^1 FI_{in}(q,k)\,dk$ · lower = better", True),
+        ("h_sem_mean", r"$H_{sem}$  (bits)",
+         "semantic entropy of the answers · lower = better", True),
     ]
     x = np.arange(3)
     for ax, (col, title, sub, lower_better) in zip(axes, panels):
@@ -69,8 +72,8 @@ def fig_headline(root, out):
     handles, lbls = axes[0].get_legend_handles_labels()
     fig.legend(handles, lbls, loc="lower center", bbox_to_anchor=(0.5, -0.07),
                ncol=2, fontsize=14)
-    fig.suptitle("Making a question specific: same 149 questions, 3 models, all effects p ≤ 5e-9",
-                 fontsize=16, y=1.03)
+    fig.suptitle(r"$FI_{spec}$: 0 $\rightarrow$ 1.58 bits   ·   149 questions, 3 models,"
+                 " N=10 rephrasings, k=10 samples", fontsize=16, y=1.03)
     fig.savefig(out, dpi=160)
     plt.close(fig)
 
@@ -90,13 +93,13 @@ def fig_dial(root, out):
 
     fig, axes = plt.subplots(1, 2, figsize=(12.5, 4.6))
     for ax, data, ttl, ylab in [
-        (axes[0], acc, "Accuracy", "accuracy"),
-        (axes[1], fi, "Phrasing-luck cost", "bits (lower = better)"),
+        (axes[0], acc, r"$\bar{F}$  (graded accuracy)", r"$\bar{F}$"),
+        (axes[1], fi, r"$AUFI_{in}$  (bits)", "bits (lower = better)"),
     ]:
         ax.plot(fr, data[0], "o-", lw=3, ms=11, color=C_L0, label="vague question")
         ax.plot(fr, data[1], "o-", lw=3, ms=11, color=C_L1, label="specific question")
         ax.fill_between(fr, data[0], data[1], alpha=0.13,
-                        color=C_L1 if ttl == "Accuracy" else C_L0)
+                        color=C_L1 if "bar{F}" in ttl else C_L0)
         ax.set_xticks(fr)
         ax.set_xticklabels(["none", "half", "full"])
         ax.set_xlabel("evidence given to the model")
@@ -107,7 +110,7 @@ def fig_dial(root, out):
                      xytext=(0.66, (acc[0][2] + acc[1][2]) / 2), fontsize=13,
                      fontweight="bold", va="center")
     axes[0].legend(loc="upper left", fontsize=12)
-    fig.suptitle("Being specific only pays off if the model can find the answer  (Qwen, 50 questions)",
+    fig.suptitle("Specificity x evidence interaction  (Qwen-2.5-7B, 50 questions, k=10, N=10)",
                  fontsize=15, y=1.04)
     fig.savefig(out, dpi=160)
     plt.close(fig)
