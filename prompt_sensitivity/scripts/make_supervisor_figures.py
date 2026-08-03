@@ -248,13 +248,24 @@ def fig_feedback(root, out):
         ax.scatter([i] * 3, per_model[h], s=55, color="white", edgecolor="#222222",
                    zorder=4, linewidth=1.4)
     ax.axhline(0.5, ls=":", color="#999999", zorder=1)
-    ax.text(1.34, 0.515, "chance", fontsize=11, color="#777777")
-    ax.axhline(ver[ver["head"] == "vagueness"].auroc_length_baseline.iloc[0],
-               ls="--", color="#B22222", lw=2, zorder=3)
-    ax.text(-0.45, 0.772, "length-only baseline", fontsize=11.5, color="#B22222")
+    ax.text(-0.55, 0.512, "chance", fontsize=10.5, color="#777777", ha="left")
+    # EACH head gets ITS OWN length baseline. A single shared line (the
+    # vagueness one, .755) made the dispersion head look like it loses to
+    # length, when its own baseline is ~.55 and its margin is the larger one.
+    for i, h in enumerate(heads):
+        base = float(ver[ver["head"] == h].auroc_length_baseline.mean())
+        ax.plot([i - 0.31, i + 0.31], [base, base], ls="--", color="#B22222",
+                lw=2.4, zorder=5)
+        ax.text(i, base - 0.045, f"length-only  {base:.2f}", ha="center",
+                fontsize=10.5, color="#B22222")
+        ax.annotate("", xy=(i + 0.36, means[i]), xytext=(i + 0.36, base),
+                    arrowprops=dict(arrowstyle="<->", lw=1.8, color="#333333"))
+        ax.text(i + 0.40, (means[i] + base) / 2, f"+{means[i]-base:.2f}",
+                fontsize=12.5, fontweight="bold", va="center", color="#333333")
     ax.set_xticks(x)
-    ax.set_xticklabels(['"is it too vague?"', '"will answers scatter?"'], fontsize=13)
-    ax.set_xlim(-0.55, 1.55)
+    ax.set_xticklabels(['"is it too\nvague?"', '"will answers\nscatter?"'],
+                       fontsize=12.5)
+    ax.set_xlim(-0.6, 1.92)
     ax.set_ylim(0.4, 1.0)
     ax.set_ylabel("AUROC")
     ax.set_title("One forward pass predicts prompt quality", fontsize=15, pad=10)
