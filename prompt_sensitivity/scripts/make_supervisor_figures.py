@@ -40,6 +40,36 @@ def _v3(root):
     return {m: pd.read_parquet(root / f"data/specificity_v3_{m}.parquet") for m in MODELS}
 
 
+def _answer_survives_half(root) -> set[str]:
+    """question_ids whose TARGET answer still appears in the first ceil(n/2)
+    evidence snippets — i.e. where halving reduces context without deleting
+    the answer. Dataset-side and model-free (same criterion as the study's
+    evidence-coverage inclusion filter, applied at the halved depth)."""
+    import math
+
+    from ..config import load_config as _load
+    from ..data.load_ambigqa import load_ambigqa
+    from ..specificity.build_levels import choose_target_idx
+
+    cfg = _load()
+    acfg = cfg.sampling.ambigqa
+    seed = (cfg.specificity.target_seed
+            if cfg.specificity is not None else cfg.random_seed)
+    keep: set[str] = set()
+    for q in load_ambigqa(
+        hf_dataset=acfg.hf_dataset, hf_config=acfg.hf_config, split=acfg.split,
+        min_interpretations=acfg.min_interpretations,
+        include_single_answer_anchor=acfg.include_single_answer_anchor,
+    ):
+        t = choose_target_idx(q.id, q.m0(), seed=seed)
+        answers = [a.casefold() for a in q.interpretations[t].answers]
+        half = q.evidence[: math.ceil(0.5 * len(q.evidence))]
+        blob = " ".join((s.title + " " + s.snippet).casefold() for s in half)
+        if any(a in blob for a in answers):
+            keep.add(q.id)
+    return keep
+
+
 # --- 1. headline: what one turn of the dial buys ---------------------------
 def fig_headline(root, out):
     d = _v3(root)
@@ -80,10 +110,21 @@ def fig_headline(root, out):
 
 # --- 2. the evidence interaction ------------------------------------------
 def fig_dial(root, out):
+    """APPENDIX/ablation only — the evidence dial was removed from the results
+    flow on 2026-08-03: withholding evidence manipulates ANSWERABILITY, not
+    context, and re-creates the knowledge floor the uniform-evidence design
+    exists to avoid. Retained because it justifies that design choice.
+
+    Restricted to the questions whose target answer SURVIVES the halving, so
+    all three points compare the same questions (39 of 50); on the full 50 the
+    half condition also deletes the answer outright for 11 questions.
+    """
     f00 = pd.read_parquet(root / "data/evidence_dial_f00_qwen_2_5_7b.parquet")
     f05 = pd.read_parquet(root / "data/evidence_dial_f05_qwen_2_5_7b.parquet")
     v3 = pd.read_parquet(root / "data/specificity_v3_qwen_2_5_7b.parquet")
-    qids = set(f00.question_id.astype(str))
+    qids = set(f00.question_id.astype(str)) & _answer_survives_half(root)
+    f00 = f00[f00.question_id.astype(str).isin(qids)]
+    f05 = f05[f05.question_id.astype(str).isin(qids)]
     f10 = v3[v3.question_id.astype(str).isin(qids)]
     fr = [0.0, 0.5, 1.0]
     acc = {lvl: [df[df.spec_level == lvl].f_graded_mean.mean()
@@ -110,8 +151,9 @@ def fig_dial(root, out):
                      xytext=(0.66, (acc[0][2] + acc[1][2]) / 2), fontsize=13,
                      fontweight="bold", va="center")
     axes[0].legend(loc="upper left", fontsize=12)
-    fig.suptitle("Specificity x evidence interaction  (Qwen-2.5-7B, 50 questions, k=10, N=10)",
-                 fontsize=15, y=1.04)
+    fig.suptitle("APPENDIX — design justification, not a result:  the specificity effect needs a findable answer\n"
+                 "(Qwen-2.5-7B; 39 questions whose target answer survives the halving)",
+                 fontsize=13.5, y=1.07)
     fig.savefig(out, dpi=160)
     plt.close(fig)
 

@@ -21,28 +21,24 @@ an honest OOD gap to report — while the length baseline sits BELOW chance
 (0.457), so the heads' signal is semantic, not a length artifact.
 Results parquet: `data/vagueness_holdout_results.parquet`.
 
-## Evidence dial — specificity × evidence interaction (qwen, same 50 q) ✅
+## Evidence dial — WITHDRAWN as a result (2026-08-03), kept as design justification
 
-f = 0.0 / 0.5 fresh runs; f = 1.0 sliced from the v3 parquet (100 matched
-cells). All cells 100/100, 0 failed.
+The arm crossed specificity with 0 % / 50 % / 100 % of the evidence snippets.
+**Dropped from the results flow**: withholding evidence manipulates
+*answerability*, not context, and re-creates the knowledge floor that the
+uniform-evidence design exists to remove — the same objection that killed the
+VoI context arms. Concretely, halving the snippet list **deletes the target
+answer outright for 11 of 50 questions** (answer present: 100 % at full,
+78 % at half), so the middle point confounds "less context" with "no answer".
 
-| evidence | acc L0 | acc L1 | Δacc | AUFI L0 | AUFI L1 | ΔFI (bits) | H_sem L0→L1 |
-|---|---|---|---|---|---|---|---|
-| 0.0 (closed book) | 0.106 | 0.126 | +0.02 | 2.94 | 2.90 | −0.05 | 0.59→0.58 |
-| 0.5 | 0.311 | 0.409 | +0.10 | 2.22 | 1.91 | −0.31 | 0.28→0.25 |
-| 1.0 | 0.301 | 0.536 | +0.24 | 2.29 | 1.47 | −0.83 | 0.35→0.22 |
+On the 39 questions whose answer survives the halving (same questions at all
+three points), the pattern is monotone — Δaccuracy +0.03 / +0.15 / +0.19 at
+0 / 50 / 100 % evidence — but it is reported as **the reason evidence is held
+constant**, not as a second experimental axis. Figure retained as an appendix
+ablation (`figures/supervisor_2026-08-03/dial.png`, clean subset).
 
-Reading — the dial's payoff REQUIRES evidence and grows with it:
-- **Closed book:** floor everywhere; disambiguation buys ~nothing (the model
-  lacks the knowledge either way) — replicates the v1 floor finding.
-- **L0 saturates at ~0.30 from half evidence onward** (ambiguity, not
-  evidence, is the binding constraint on the ambiguous question), while
-  **L1 keeps climbing with evidence** (0.13 → 0.41 → 0.54).
-- In bits: paying 1.59 bits of question specificity converts to −0.05 /
-  −0.31 / −0.83 bits of formulation-luck reduction at evidence 0 / ½ / full.
-  Question-side information is only convertible when the answer is
-  extractable — evidence raises the ceiling, specificity determines how much
-  of it you reach.
+Closed-book endpoint (Δaccuracy +0.02 on all 50) replicates the v1 floor
+finding: 84 % of questions unanswerable without evidence.
 
 ## POSIX — all three models ✅ (completes the axis-3 literature row)
 
