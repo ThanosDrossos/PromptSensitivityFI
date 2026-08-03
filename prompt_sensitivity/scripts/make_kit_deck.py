@@ -215,7 +215,8 @@ def build_section(prs, root):
     s = kit_slide(prs, "Prompt checker — does it work?",
                   "Out-of-fold by question; right panel = 1,852 questions never seen, labelled by AmbigQA annotators.")
     add_figure(s, root, "feedback", height=Inches(4.3))
-    add_takeaway(s, "Vagueness .85–.87 in-distribution, .66 on unseen human-labelled questions (length baseline .46).")
+    add_takeaway(s, "Each head beats ITS OWN length baseline (+0.11 vagueness, +0.20 dispersion); "
+                    "on unseen human-labelled questions length falls to .46 while vagueness holds .66.")
 
     # 9 · contributions ----------------------------------------------------
     s = kit_slide(prs, "What this paper could contribute",
