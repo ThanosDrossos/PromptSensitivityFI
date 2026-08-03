@@ -61,3 +61,30 @@ formulation-sensitivity axis stays weak (ρ_F .24–.32). So a published
 prompt-sensitivity index measures dispersion, NOT phrasing-induced
 variability — **ρ_F remains alone on axis 2**. ψ also falls with
 disambiguation in all three models, the same direction as H_sem.
+
+## Length control — is the specificity effect just "longer prompts"? (no)
+
+Disambiguated questions ARE longer: L0 mean 46 chars → L1 mean 67 (+43 %), so
+length is confounded with specificity at the level manipulation. Three tests
+on EXISTING data (no new compute) rule length out as the cause:
+
+1. **Within a level, meaning held constant.** The 10 rephrasings of a cell are
+   NLI-verified equivalent but vary in length. Mean within-cell
+   ρ(length, F) = **−0.046 / −0.021 / +0.038** (qwen/llama/mistral) — longer
+   phrasings do not perform better.
+2. **The test is well-powered.** Within-cell length range: median 39 chars,
+   p90 65 — versus the 20-char L0→L1 gap; **95 % of cells span more length
+   variation than the manipulation itself.**
+3. **Dose test across questions.** ρ(Δlength, Δaccuracy) = **−0.060 / −0.023 /
+   −0.081**, all p > 0.3 (n = 150) — questions that gained more characters did
+   not gain more accuracy.
+
+Probe side: the vagueness head beats a length-only baseline by ~+0.10 AUROC
+in-distribution (.85–.87 vs .755), which alone would be unconvincing — but on
+the held-out annotator-labelled set the length baseline collapses to **.457
+(below chance)** while the head still scores **.655–.670**. The head is
+therefore not a length detector.
+
+Conclusion: an explicit "padded prompt" arm (L0-long / L1-long) is NOT needed
+to defend the causal claim; the existing paraphrase universe already provides
+a meaning-preserving length control over the relevant range.
