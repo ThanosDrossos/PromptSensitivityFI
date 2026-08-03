@@ -157,8 +157,19 @@ def build_section(prs, root):
     # 2 · design -----------------------------------------------------------
     s = kit_slide(prs, "What we did",
                   "AmbigQA (Min et al. 2020): human annotators already wrote both versions of every question.")
-    add_figure(s, root, "design", height=Inches(4.25))
-    add_takeaway(s, "One dial we control (FI_spec, model-free) → three things we measure.")
+    add_figure(s, root, "design", top=Inches(1.55), height=Inches(4.05))
+    # Design justification: why evidence is held constant rather than varied.
+    note = s.shapes.add_textbox(Inches(0.41), Inches(5.72), Inches(12.4), Inches(0.5))
+    note.text_frame.word_wrap = True
+    p = note.text_frame.paragraphs[0]
+    p.text = ("Every cell also receives the SAME evidence block (the annotators' Wikipedia snippets), "
+              "identical across both levels and all 10 rephrasings:\na closed-book pilot left 84 % of "
+              "questions unanswerable, so answering must be reading, not recall. Evidence is held "
+              "constant — it is never a second dial.")
+    for r in p.runs:
+        _style(r, 12, color=MUTED)
+    add_takeaway(s, "One manipulated variable: FI_spec, the question's own specificity (model-free). "
+                    "Everything else is held fixed.")
 
     # 3 · definitions (NEW, technical) -------------------------------------
     s = kit_slide(prs, "The four quantities, defined",
@@ -176,40 +187,37 @@ def build_section(prs, root):
                     "all 3 models, Wilcoxon signed-rank p ≤ 5e-9.")
 
     # 5 · result 2 ---------------------------------------------------------
-    s = kit_slide(prs, "Result 2 — specificity × evidence interaction",
-                  "Same 50 questions re-run with 0 %, 50 % and 100 % of the retrieved evidence snippets "
-                  "(identical across both specificity levels).")
-    add_figure(s, root, "dial", height=Inches(4.3))
-    add_takeaway(s, "ΔF̄ = +0.02 / +0.10 / +0.24 and ΔAUFI_in = −0.05 / −0.31 / −0.83 bits "
-                    "at 0 / 50 / 100 % evidence — the two factors interact.")
-
-    # 6 · result 3 ---------------------------------------------------------
-    s = kit_slide(prs, "Result 3 — the three measures are genuinely different",
+    # (The evidence-dial arm was dropped from the results flow on 2026-08-03:
+    #  withholding evidence manipulates ANSWERABILITY, not context, and
+    #  re-creates the knowledge floor the uniform-evidence design removes. It
+    #  survives as the design justification on the "What we did" slide, and as
+    #  an appendix figure.)
+    s = kit_slide(prs, "Result 2 — the three measures are genuinely different",
                   "Within-level Spearman |ρ| between all 12 metrics we computed (n = 149 questions × 3 models).")
     add_figure(s, root, "independence", top=Inches(1.5), height=Inches(4.85))
     add_takeaway(s, "ρ_F ⊥ accuracy (.08) and ⊥ H_sem (.03) → no axis can be inferred from another.",
                  top=Inches(6.42))
 
-    # 7 · result 4 ---------------------------------------------------------
-    s = kit_slide(prs, "Result 4 — what the literature actually measures",
+    # 6 · result 3 ---------------------------------------------------------
+    s = kit_slide(prs, "Result 3 — what the literature actually measures",
                   "POSIX (Chatterjee et al. 2024): a published prompt-sensitivity index, computed on our data.")
     add_figure(s, root, "posix", height=Inches(4.3))
     add_takeaway(s, "It loads on answer dispersion in all 3 models (ρ .35–.69) — the phrasing axis stays empty.")
 
-    # 8 · probe design (NEW, technical) ------------------------------------
+    # 7 · probe design ------------------------------------------------------
     s = kit_slide(prs, "How the prompt checker works",
                   "A linear probe on the model's own hidden state — no fine-tuning, no extra annotation.")
     add_figure(s, root, "probe", top=Inches(1.5), height=Inches(4.8))
     add_takeaway(s, "Cost: one forward pass — the warning arrives BEFORE the model answers.",
                  top=Inches(6.42))
 
-    # 9 · probe results ----------------------------------------------------
+    # 8 · probe results ----------------------------------------------------
     s = kit_slide(prs, "Prompt checker — does it work?",
                   "Out-of-fold by question; right panel = 1,852 questions never seen, labelled by AmbigQA annotators.")
     add_figure(s, root, "feedback", height=Inches(4.3))
     add_takeaway(s, "Vagueness .85–.87 in-distribution, .66 on unseen human-labelled questions (length baseline .46).")
 
-    # 10 · contributions ---------------------------------------------------
+    # 9 · contributions ----------------------------------------------------
     s = kit_slide(prs, "What this paper could contribute",
                   "Four claims we can now defend with data.")
     add_body(s, [
@@ -228,7 +236,7 @@ def build_section(prs, root):
     ], top=Inches(1.72), gap=Inches(1.15), head_size=16, body_size=13)
     add_takeaway(s, "Open question for today: which of these should lead the paper?", top=Inches(6.5))
 
-    # 11 · status ----------------------------------------------------------
+    # 10 · status ----------------------------------------------------------
     s = kit_slide(prs, "Where we stand", None)
     left = [
         "3 models × 149 questions × 2 specificity levels",
