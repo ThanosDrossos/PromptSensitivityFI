@@ -1,3 +1,13 @@
+> # ⚠️ PARTIALLY OUTDATED — READ THE CAVEAT FIRST
+>
+> **Reviewed 2026-08-05.** Its **mechanics** (what the code does) are still broadly accurate, but its **framing is outdated**: it presents FI_in as the headline metric and the MuSiQue dual-ladder as the research question. Both were superseded.
+>
+> **Current source of truth:** `PIPELINE_WALKTHROUGH.md` (current pipeline) and `EXPLAINER_Three_Dimensions.md` (current metric frame).
+>
+> Do not follow instructions or cite numbers from this file without checking the current docs.
+
+---
+
 # PromptSensitivityFI — Codebase Walkthrough
 
 A step-by-step guide to how this repository works, written for someone who has
