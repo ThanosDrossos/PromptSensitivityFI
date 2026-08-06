@@ -1,3 +1,13 @@
+> # ⚠️ PARTIALLY OUTDATED — READ THE CAVEAT FIRST
+>
+> **Reviewed 2026-08-05.** This is a **proposal**, not a record. Much of its proposed scope was subsequently CUT: the multi-level ladder (C1), the VoI arms (C2), the cross-dataset arm (C4a) and the evidence dial (C6, withdrawn as a result).
+>
+> **Current source of truth:** `data/final_run_results.md` for what was actually run and found.
+>
+> Do not follow instructions or cite numbers from this file without checking the current docs.
+
+---
+
 # Final-phase plan — probes status, the 3-metric defense, and the last cluster run
 
 **Status:** PROPOSAL for review, 2026-08-02. Nothing here is implemented yet.
