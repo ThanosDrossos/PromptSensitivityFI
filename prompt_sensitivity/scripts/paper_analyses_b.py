@@ -132,13 +132,29 @@ def _varimax(loadings: np.ndarray, n_iter: int = 100, tol: float = 1e-6) -> np.n
     return loadings @ rot
 
 
-def factor_structure(corr_path, labels_path, n_factors: int = 3) -> dict:
+def factor_structure(corr_path, labels_path, n_factors: int = 3,
+                     horn_n: int = 136) -> dict:
     C = np.load(corr_path)
     meta = json.loads(labels_path.read_text(encoding="utf-8"))
-    names = meta["labels"]
+    names = list(meta["labels"])
+    C = (C + C.T) / 2
+    # R5 fix (review 2026-08-06 §3.10 + F9): DROP variables whose correlations are
+    # entirely NaN instead of zero-filling them. The old nan_to_num + unit diagonal
+    # kept `spread (Cao)` in the matrix as an isolated variable, inflating the
+    # eigenvalue denominator from 13 to 14 — which is exactly why the deck printed
+    # "70%" when the true top-3 share over the 13 real variables is 75.5%.
+    off = C.copy()
+    np.fill_diagonal(off, np.nan)
+    valid = ~np.all(np.isnan(off), axis=1)
+    if not valid.all():
+        dropped = [n for n, v in zip(names, valid) if not v]
+        names = [n for n, v in zip(names, valid) if v]
+        C = C[np.ix_(valid, valid)]
+    else:
+        dropped = []
     # Spearman matrices from finite pairwise samples are not guaranteed PSD;
     # clip tiny negative eigenvalues before analysis.
-    C = np.nan_to_num((C + C.T) / 2, nan=0.0)
+    C = np.nan_to_num(C, nan=0.0)
     np.fill_diagonal(C, 1.0)
     evals, evecs = np.linalg.eigh(C)
     order = np.argsort(evals)[::-1]
@@ -153,9 +169,26 @@ def factor_structure(corr_path, labels_path, n_factors: int = 3) -> dict:
             rotated[:, j] *= -1
     assignment = {names[i]: int(np.abs(rotated[i]).argmax())
                   for i in range(len(names))}
+    # R5 upgrade: Horn's parallel analysis — the standard factor-retention test,
+    # far stronger evidence than a variance share. Retain factor j iff its
+    # eigenvalue exceeds the 95th percentile of eigenvalue j from random data of
+    # the same shape. horn_n = the smallest complete-case n feeding the matrix
+    # (conservative: a smaller n makes random eigenvalues LARGER).
+    rng = np.random.default_rng(42)
+    p = len(names)
+    sims = np.empty((500, p))
+    for b in range(500):
+        X = rng.normal(size=(horn_n, p))
+        sims[b] = np.sort(np.linalg.eigvalsh(np.corrcoef(X, rowvar=False)))[::-1]
+    horn95 = np.percentile(sims, 95, axis=0)
+    n_retained = int(np.sum(evals[: len(horn95)] > horn95))
     return {
         "eigenvalues": [round(float(v), 3) for v in evals.tolist()],
         "explained_by_top3": round(float(evals[:3].sum() / total), 3),
+        "n_variables": len(names),
+        "dropped_all_nan": dropped,
+        "horn_random95": [round(float(v), 3) for v in horn95[:6].tolist()],
+        "horn_n_retained": n_retained,
         "loadings_varimax": {
             names[i]: [round(float(x), 2) for x in rotated[i]]
             for i in range(len(names))
@@ -286,8 +319,11 @@ def main() -> int:
         f"{b2['ex2_hsem_free']['h_sem_norm'][1]:.2f}. "
         "Ex3: H_sem pinned (single mode), accuracy 1.0 vs 0.0.", "",
         "## B3a factor structure",
+        f"- {b3a['n_variables']} variables (all-NaN dropped: {b3a['dropped_all_nan'] or 'none'})",
         f"- top-3 eigenvalues {b3a['eigenvalues'][:3]} explain "
-        f"**{b3a['explained_by_top3']:.0%}** of the metric-space variance",
+        f"**{b3a['explained_by_top3']:.1%}** of the metric-space variance",
+        f"- Horn parallel analysis: random-95th eigenvalues {b3a['horn_random95'][:3]} -> "
+        f"**exactly {b3a['horn_n_retained']} factors retained**",
         "- varimax factor assignment (0/1/2 = the three axes):", "```json",
         json.dumps(b3a["factor_assignment"], indent=1), "```", "",
         "## B3b octant occupancy (per model x level)", "",
