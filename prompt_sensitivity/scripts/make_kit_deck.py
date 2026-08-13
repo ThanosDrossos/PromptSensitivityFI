@@ -183,8 +183,12 @@ def build_section(prs, root):
                   "Paired within question: identical evidence and gold answer; only the question text changes "
                   "(FI_spec 0 → 1.58 bits). n = 149 × 3 models.")
     add_figure(s, root, "headline", height=Inches(4.3))
-    add_takeaway(s, "ΔF̄ = +0.22…+0.25 · ΔAUFI_in = −0.79…−0.87 bits · ΔH_sem < 0 — "
-                    "all 3 models, Wilcoxon signed-rank p ≤ 5e-9.")
+    # R5 correction (2026-08-07): the old line claimed p ≤ 5e-9 for ALL quantities
+    # (true only for accuracy/AUFI; mistral's ΔH_sem fails BH) and used the naive
+    # target-gold delta, 47–72 % of which is the grading lottery (R1 union arm).
+    add_takeaway(s, "ΔF̄(union gold) = +0.06…+0.13, BH-significant in all 3 models · "
+                    "unreachable quality thresholds 56–67% → 32–40% · "
+                    "ΔH_sem < 0 in all 3, Holm-robust in 1.")
 
     # 5 · result 2 ---------------------------------------------------------
     # (The evidence-dial arm was dropped from the results flow on 2026-08-03:
@@ -195,14 +199,21 @@ def build_section(prs, root):
     s = kit_slide(prs, "Result 2 — the three measures are genuinely different",
                   "Within-level Spearman |ρ| between all 12 metrics we computed (n = 149 questions × 3 models).")
     add_figure(s, root, "independence", top=Inches(1.5), height=Inches(4.85))
-    add_takeaway(s, "ρ_F ⊥ accuracy (.08) and ⊥ H_sem (.03) → no axis can be inferred from another.",
+    # R5 correction (2026-08-07): "orthogonal" is not establishable (equivalence
+    # bounds only 0.33–0.45) and .03 was the minimum over the dispersion family.
+    add_takeaway(s, "All cross-axis associations ≤ |0.14| (hierarchical ρ_F, both gold sets) — and the "
+                    "dial dissociates the axes: it moves accuracy in 3/3 models, ρ_F in 0/3.",
                  top=Inches(6.42))
 
     # 6 · result 3 ---------------------------------------------------------
     s = kit_slide(prs, "Result 3 — what the literature actually measures",
                   "POSIX (Chatterjee et al. 2024): a published prompt-sensitivity index, computed on our data.")
     add_figure(s, root, "posix", height=Inches(4.3))
-    add_takeaway(s, "It loads on answer dispersion in all 3 models (ρ .35–.69) — the phrasing axis stays empty.")
+    # R5 correction (2026-08-07): on the common subset POSIX~H_sem is NOT
+    # significantly larger than POSIX~ρ_F (Williams p = .42/.63/.054) — the
+    # "phrasing axis stays empty" claim is withdrawn (data/metric_reductions.md).
+    add_takeaway(s, "POSIX correlates with BOTH dispersion and ρ_F; the difference is not significant — "
+                    "a published index that does not discriminate between the axes.")
 
     # 7 · probe design ------------------------------------------------------
     s = kit_slide(prs, "How the prompt checker works",
@@ -215,25 +226,37 @@ def build_section(prs, root):
     s = kit_slide(prs, "Prompt checker — does it work?",
                   "Out-of-fold by question; right panel = 1,852 questions never seen, labelled by AmbigQA annotators.")
     add_figure(s, root, "feedback", height=Inches(4.3))
-    add_takeaway(s, "Each head beats ITS OWN length baseline (+0.11 vagueness, +0.20 dispersion); "
-                    "on unseen human-labelled questions length falls to .46 while vagueness holds .66.")
+    # R5 correction (2026-08-07): ".46, below chance" was the sign-flipped
+    # orientation of the length baseline; a baseline takes its better orientation,
+    # which is .543 → honest margin +0.12. The defensible OOD story is zero-shot
+    # transfer vs matched-protocol text baselines.
+    add_takeaway(s, "Each head beats its own length baseline; on unseen human-labelled questions the "
+                    "head holds .655–.670 vs .543 (length) and .544–.562 (TF-IDF, matched protocol). "
+                    "The fragility (ρ_F) head is at chance — phrasing sensitivity is NOT linearly "
+                    "readable from the prompt state (reported, not hidden).")
 
     # 9 · contributions ----------------------------------------------------
     s = kit_slide(prs, "What this paper could contribute",
                   "Four claims we can now defend with data.")
+    # R5 rewrite (2026-08-07): claims aligned with PAPER_PROPOSAL_2026-08-07.md.
+    # Old #1 claimed orthogonality (not establishable, bounds 0.33–0.45); old #2
+    # claimed "first application" (Hazen 2007 §"The Functional Information of
+    # Letter Sequences" already computed FI over natural-language strings scored
+    # by receiver response); old #3 presented algebraic identities as empirical
+    # convergence (data/metric_reductions.md has the proofs).
     add_body(s, [
-        ("1 · A new axis, not another score",
-         "ρ_F is measurably separate from ability and dispersion — the first prompt-sensitivity\n"
-         "metric that is not accuracy or entropy in disguise (validated by ICC + factor analysis)."),
-        ("2 · Functional Information transfers out of biology",
-         "First application of the Szostak/Hazen formalism to prompts: sensitivity in bits,\n"
-         "comparable across questions and models."),
-        ("3 · A tidying result for the field",
-         "POSIX, S_τ, TVD, |A_q| and variation ratio all load on ONE construct — answer dispersion.\n"
-         "The correlation map shows which published metric belongs where."),
+        ("1 · ρ_F — a distinct, non-redundant axis",
+         "Per-question, noise-corrected, task-success-referenced; trait-like (untouched by the\n"
+         "dial that lifts accuracy), robust across grading conventions, stable model ranking."),
+        ("2 · A measurement model, not a new formalism",
+         "A generator-relative instantiation of Hazen's letter-sequence FI with an LLM receiver:\n"
+         "one presentational ruler; bits comparable only within a fixed paraphrase generator."),
+        ("3 · A tidying PROOF for the field",
+         "S_τ, TVD, |A_q|, variation ratio, Var[FI_out] are functions of ONE cluster distribution\n"
+         "(two are exact relabelings of H_sem) — identities, not correlations. POSIX doesn't discriminate."),
         ("4 · A usable artefact",
-         "“Your prompt is too vague”, predicted from one forward pass, ~10× cheaper than sampling,\n"
-         "and it survives a human-labelled held-out test."),
+         "“Your prompt is too vague”, predicted from one forward pass: zero-shot .66 on human-labelled\n"
+         "questions where matched-protocol text baselines get .54–.59 — label-efficiency, not magic."),
     ], top=Inches(1.72), gap=Inches(1.15), head_size=16, body_size=13)
     add_takeaway(s, "Open question for today: which of these should lead the paper?", top=Inches(6.5))
 

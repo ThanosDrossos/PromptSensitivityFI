@@ -7,18 +7,27 @@ Frozen FeedbackModel bundles applied to `vagueness_holdout_<model>.parquet`
 NON-ambiguous rows vs ambiguous ones; all 150 v3 training questions excluded
 → n = 1,852 questions per model, 1,022 ambiguous / 830 specific):
 
-| model | AUROC (frozen head) | length baseline |
-|---|---|---|
-| qwen_2_5_7b | **0.667** | 0.457 |
-| llama_3_1_8b | **0.655** | 0.457 |
-| mistral_7b_v03 | **0.670** | 0.457 |
+| model | AUROC (frozen head) | length baseline **[R5-corrected]** | TF-IDF (frozen, matched protocol) |
+|---|---|---|---|
+| qwen_2_5_7b | **0.667** | 0.543 | 0.544–0.562 |
+| llama_3_1_8b | **0.655** | 0.543 | 0.544–0.562 |
+| mistral_7b_v03 | **0.670** | 0.543 | 0.544–0.562 |
+
+**[R5 correction, 2026-08-07]:** the previously printed **0.457 was the sign-flipped
+orientation** of the length feature (longer = ambiguous). A baseline predictor takes its
+better orientation, which is **0.543** (shorter = ambiguous) — so the honest head margin
+is **+0.12**, not +0.21, and the claim "the length baseline collapses below chance" is
+**withdrawn**. The correct defense is stronger anyway: under the matched frozen protocol
+(no holdout labels) TF-IDF text baselines also only reach .544–.562, so the head's signal
+is not lexical — but with ~1.5 k in-domain labels a bag-of-words model (or the question's
+first word, .650) matches the head. The head's real advantage is **zero-shot transfer /
+label efficiency**, not detection quality.
 
 Reading: genuine out-of-distribution transfer — the label here comes from a
 DIFFERENT mechanism (annotator judgment "this NQ question has multiple
 interpretations") than training (L0-vs-L1 rewrite pairs), on questions the
 heads never saw. The signal drops from in-distribution .849–.874 to ~.66 —
-an honest OOD gap to report — while the length baseline sits BELOW chance
-(0.457), so the heads' signal is semantic, not a length artifact.
+an honest OOD gap to report.
 Results parquet: `data/vagueness_holdout_results.parquet`.
 
 ## Evidence dial — WITHDRAWN as a result (2026-08-03), kept as design justification
@@ -80,10 +89,12 @@ on EXISTING data (no new compute) rule length out as the cause:
    not gain more accuracy.
 
 Probe side: the vagueness head beats a length-only baseline by ~+0.10 AUROC
-in-distribution (.85–.87 vs .755), which alone would be unconvincing — but on
-the held-out annotator-labelled set the length baseline collapses to **.457
-(below chance)** while the head still scores **.655–.670**. The head is
-therefore not a length detector.
+in-distribution (.85–.87 vs .755). **[R5-corrected]** On the held-out
+annotator-labelled set the honest length baseline is **.543** (the previously
+printed .457 was the sign-flipped orientation) while the head scores
+**.655–.670** — a +0.12 margin, corroborated by matched-protocol TF-IDF
+baselines at .544–.562. The head is therefore not a length detector, but the
+margin claim is +0.12, not "length collapses below chance".
 
 Conclusion: an explicit "padded prompt" arm (L0-long / L1-long) is NOT needed
 to defend the causal claim; the existing paraphrase universe already provides

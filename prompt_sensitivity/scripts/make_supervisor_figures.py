@@ -168,7 +168,13 @@ def fig_independence(root, out):
              "H_sem", "S_tau (Errica)", "TVD-sens  [M4]", "|A_q| observed",
              "variation ratio", "Var[FI_out]  [M4]", "FI_out_fixed"]
     idx = [names.index(n) for n in order]
-    M = np.nan_to_num(C[np.ix_(idx, idx)], nan=0.0)
+    M = C[np.ix_(idx, idx)]
+    # R9 fix (review §3.10): never silently zero-fill NaN — a missing correlation
+    # rendered as 0 reads as "independent" in this figure. The plotted subset must
+    # be complete; anything else is a data problem that should stop the build.
+    if not np.isfinite(M).all():
+        bad = [(order[i], order[j]) for i, j in zip(*np.where(~np.isfinite(M)))]
+        raise ValueError(f"independence figure has undefined correlations: {bad[:6]}")
     short = {"accuracy": "accuracy", "AUFI (graded)": "AUFI", "FI premium  [M2]": "ΔFI premium",
              "rho_F  [M1]": "ρ_F", "rho_u (Cox)": "ρ_u (Cox)", "H_sem": "H_sem",
              "S_tau (Errica)": "S_τ (Errica)", "TVD-sens  [M4]": "TVD", "|A_q| observed": "|A_q|",
@@ -190,8 +196,13 @@ def fig_independence(root, out):
         ax.text(pos, -0.85, txt, ha="center", fontsize=12.5, fontweight="bold", color=col)
     fig.colorbar(im, ax=ax, shrink=0.78, label="|correlation|")
     ax.set_title("Three blocks, almost nothing between them", pad=52, fontsize=16)
+    # R5 correction (2026-08-07): the old footer printed ".08 / .03" — a
+    # cross-model average over a complete-case sample (coverage 45–66 %), with
+    # .03 the minimum over the dispersion family. Corrected claim per R3
+    # (data/independence_target.md): bounded association, not orthogonality.
     fig.text(0.5, -0.03,
-             "ρ_F vs accuracy = .08     ρ_F vs H_sem = .03     →  the axes cannot substitute for each other",
+             "all cross-axis associations ≤ |0.14| (hierarchical ρ_F, 100% coverage)  →  "
+             "distinct, non-redundant axes (equivalence bound 0.33–0.45)",
              ha="center", fontsize=12.5, color="#333333")
     fig.savefig(out, dpi=160)
     plt.close(fig)

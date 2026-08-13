@@ -1,5 +1,22 @@
 # The three-axes slide — talk track
 
+> # ⚠️ CORRECTED 2026-08-07 — READ THIS BANNER FIRST
+>
+> The 2026-08-06 adversarial review (`../../REVIEW_2026-08-06_Adversarial.md`) and the
+> R1–R3 fixes (`../../RESULTS_R1_R2_R3_2026-08-07.md`) superseded several headline
+> numbers below. The R5-corrected claims are patched inline and marked **[R5]**; the
+> current claim language lives in `../../PAPER_PROPOSAL_2026-08-07.md`. The four claims
+> that changed most:
+> 1. The accuracy headline is now **Δ_union = +0.06…+0.13** (union-gold scoring); the old
+>    +0.22…+0.25 was 47–72 % grading lottery (quantified in the R1 arm; goes in Methods).
+> 2. **"Orthogonal" is withdrawn** — say "distinct, non-redundant": all associations
+>    ≤ |0.14| under the hierarchical estimator, equivalence establishable only to
+>    0.33–0.45, and ρ_F has a consistent modest positive association with the
+>    dispersion *family* (6/6 model×level, p = .031).
+> 3. **The "costumes" are identities, not correlations** — `data/metric_reductions.md`.
+> 4. **The novelty claim is generator-relative FI, not "first FI on prompts"** — Hazen
+>    2007 §"The Functional Information of Letter Sequences" already did natural language.
+
 **What this file is:** everything needed to present the "3 axes + the dial" slide to
 someone who does not know the project, plus the verification status of every number on
 it. Numbers recomputed 2026-07-27 from `data/specificity_v3_<model>.parquet`
@@ -44,7 +61,14 @@ Different possibility spaces, one ruler. That is the intellectual coherence of t
 - **Our substitution:** biopolymer sequence → prompt string; degree of function → answer
   correctness; sequence space → the paraphrase universe of one query.
 
-A literature search for FI applied to prompts returns nothing. That gap is the paper.
+**[R5]** ~~A literature search for FI applied to prompts returns nothing. That gap is the paper.~~
+**Corrected:** Hazen et al. (2007), pp. 8575–8576, has a titled section *"The Functional
+Information of Letter Sequences"* — FI over natural-language strings scored by whether a
+receiver responds as intended ("FIREONMAIN" ≈ 36 bits), including degraded variants. Our
+construction is that construction with the receiver swapped for an LLM. The honest claim:
+a **generator-relative** instantiation FI^G with a controlled meaning-preserving proposal
+distribution — bits comparable only within a fixed G (Hazen's own requirement — all
+configurations + degree of function for each — is not met by any sampled universe).
 
 ---
 
@@ -80,9 +104,13 @@ readable, bits-native picture of ability.
 **Also in this family:** ΔFI reliability premium (ρ = .51 with accuracy — the curve's
 tail; secondary), reformulation gain log₂(F_max/F̄) (ρ = .98 → rejected, same disguise).
 
-**Headline result:** disambiguation lowers the phrasing-luck bill in every model
-(`aufi_in_graded`): Llama 2.69 → 1.84, Mistral 2.52 → 1.65, Qwen 2.32 → 1.53 bits.
-Graded accuracy roughly doubles: 0.18 → 0.42, 0.23 → 0.48, 0.29 → 0.51.
+**[R5 — corrected] Headline result:** the honest, convention-free statement is: *the
+fraction of quality thresholds no paraphrase reaches falls from 56–67 % (ambiguous) to
+32–40 % (disambiguated)* — never quote ΔAUFI in "bits" without its cap convention (the
+delta ranges −0.57 to −1.10 across defensible caps; `data/axis1_graded_curve.md`). And
+~~"accuracy roughly doubles"~~ is retired: under union-gold scoring (the dataset's own
+protocol) the real gain is **+0.06 / +0.13 / +0.12** (BH-significant, 3/3 models); the
+rest of the naive doubling was the 1-of-m₀ grading lottery (47–72 %), reported in Methods.
 
 ### AXIS 2 — FORMULATION SENSITIVITY · headline: ρ_F (functional ICC)
 
@@ -98,22 +126,34 @@ random-effects ICC(1) on the N×k correctness outcomes grouped by paraphrase:
 ρ_F = 0 → rephrasing is irrelevant, all wobble is sampling noise. ρ_F = 1 → success is
 fully determined by phrasing.
 
-**Why it earns its own axis (the money numbers):** ρ_F is ⊥ ability (**.08** with
-accuracy) and ⊥ dispersion (**.03** with H_sem). Compare AUFI's .999 with accuracy.
-It measures something no other metric in the stack measures.
+**[R5 — corrected] Why it earns its own axis:** ~~⊥ ability (.08), ⊥ dispersion (.03)~~ —
+those were complete-case, cross-model averages; the honest numbers
+(`data/independence_target.md`): under the hierarchical estimator every within-model,
+within-level association is **≤ |0.14|** (both gold sets), but equivalence is establishable
+only to |ρ| < 0.33–0.45, and ρ_F has a consistent modest positive association with the
+dispersion *family* (6/6 model×level positive, p = .031). Say **"distinct and
+non-redundant," never "orthogonal."** The stronger separation evidence is the
+**dissociation**: the dial moves accuracy in 3/3 models and ρ_F in 0/3 (properly powered,
+n = 150, both golds). Compare AUFI's .999 with accuracy.
 
-**Convergent validity, two independent channels:** ρ_F is computed from *behaviour*
-(correct/incorrect outcomes); **ρ_u (Cox et al. 2025)** is computed from *embedding
-geometry* of the prompts. They agree at **ρ = .67** — two different measurement channels
-pointing at one construct, which is much stronger evidence than either alone.
+**[R5 — corrected] Convergent validity, one data pass, two readouts:** ρ_F is computed
+from *behaviour* (correct/incorrect outcomes); **ρ_u (Cox et al. 2025)** is computed from
+the embeddings of the ***responses*** — the *same* N×k generations, not prompt geometry
+(that quantity is ESS_in; see `metrics/rho_u.py:5-8`, `orchestrator.py`). Their agreement
+at **ρ = .67** is therefore an *upper bound* on true construct agreement (sampling error
+is shared), not independent-channel corroboration. Do not say "two independent channels."
 
 **Why published sensitivity scores don't belong here:** PSS / ProSA-style indices measure
 *raw dispersion* of outcomes across prompts without separating decoding noise from
 phrasing effects. That is why they load on Axis 3, not here. The noise correction is the
 methodological contribution of this axis.
 
-**Stability (verified):** k=10 vs k=20 samples per prompt gives ρ = **.81 / .92 / .95**
-(Llama / Mistral / Qwen) — the estimator is not a sampling artifact. Cross-*model*
+**[R5 — corrected] Reliability:** ~~k=10 vs k=20 gives ρ = .81/.92/.95~~ — that comparison
+is invalid as a reliability: the k=20 set *contains* the k=10 responses (0/1000 violating
+paraphrases), so it correlates a statistic with a superset of itself. The honest number is
+the **disjoint-paraphrase split-half** (mean of 200 random 5/5 splits, Spearman-Brown):
+**0.35 / 0.52 / 0.58** (qwen/llama/mistral). Per-question ρ_F claims are therefore not
+supportable; population-level and model-level claims are. Cross-*model*
 agreement is much weaker (≈ .2–.45 depending on level and pair) while accuracy transfers
 at .77–.82. **Read that correctly:** sensitivity is not a pure property of the question;
 it is a **(question × model) interaction** — one model's awkward phrasing is another's
@@ -140,12 +180,15 @@ entailment), take the entropy of that cluster distribution: **semantic entropy H
 `−log₂ P[correct]` was **rejected** (Section_7 §7.4.1): its reading inverts, scoring bad
 prompts as high-information.
 
-**"One construct, many costumes."** Everything else in this family is H_sem in disguise —
-these are correlations *with H_sem* on our data: S_τ (Errica, NAACL 2025) **.94**,
-TVD-sensitivity **.91**, |𝒜_q| observed **.91**, variation ratio **.75**, Var[FI_out] **.70**,
-POSIX ψ (Chatterjee et al. 2024) **.60**. This is a genuinely useful message for the
-audience: *much of the published prompt-sensitivity literature is measuring one thing.*
-(For multiple-choice, FI_out = log₂C·(1 − S_τ) — an exact rescaling of Errica.)
+**[R5 — corrected] "One object, five readouts" — identities, not correlations.** Presenting
+these as measured agreements was wrong in both directions: S_τ **≡** H_sem/log₂|𝒜|
+(max abs err 1.7e-16) and Var[FI_out] **≡** Var[H_sem] (4.4e-16) are *exact relabelings*;
+|𝒜_q|, variation ratio and 1−TVD are functionals of the *same* pooled cluster
+distribution. Say: *"five published indices are provably functions of one object — the
+semantic cluster distribution"* (`data/metric_reductions.md` has the Proposition). The one
+independently measured index, POSIX ψ, correlates with **both** dispersion and ρ_F, and
+the difference is not significant (Williams p = .42/.63/.054) — it does not discriminate
+between the axes. Never say "the phrasing axis stays empty."
 
 **⚠ The trap you must pre-empt — the moving yardstick.** Raw `fi_out_mean` *falls* with
 disambiguation (Llama 2.47 → 2.08), which looks like it contradicts the hypothesis. It
@@ -192,7 +235,12 @@ whole axis.) In our data m₀ averages 2.97, so level 1 carries **1.43 bits** (r
 **The guardrail that makes the whole design valid — state this unprompted:** the gold
 answer `a_i` is **fixed across both levels**; only the question text changes. Without it,
 disambiguation would move the target and any accuracy gain would be a grading artifact.
-Both levels are closed-book, so retrieved context cannot sneak in as a confound.
+**[R5 — corrected]** ~~Both levels are closed-book~~ — **false**: every v3 cell runs with
+the uniform evidence bundle (`context_mode = uniform_evidence`, 900/900 rows, mean 17.9
+snippets). Say instead: *both levels receive the identical evidence bundle, so retrieved
+context cannot differ between levels.* And since the R1 arm: the target-only grading is
+itself a lottery worth 47–72 % of the naive gain — the primary effect is now **Δ_union**
+(+0.06…+0.13), scored against the union of all interpretations' answers at both levels.
 
 **Why "model-free" matters:** FI_spec is identical across all three models by
 construction, so it is a true independent variable. **ESS_in** (effective sample size of
