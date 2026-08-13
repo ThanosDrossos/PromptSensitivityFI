@@ -68,7 +68,9 @@ def _scripted_generate(*, _per_attempt: list[list[RawParaphrase]]):
     """Build a side_effect callable that returns successive batches."""
     state = {"i": 0}
 
-    def _impl(question_id, question_text, *, config=None, sample_idxs=None, roles=None):
+    # **kwargs: generate_raw_paraphrases grew optional R6 width-dial kwargs
+    # (temperature / generator_model); the scripted fake must keep accepting them.
+    def _impl(question_id, question_text, *, config=None, sample_idxs=None, roles=None, **kwargs):
         i = state["i"]
         state["i"] += 1
         if i < len(_per_attempt):
@@ -176,7 +178,7 @@ def test_gold_answer_routes_to_gold_filter(monkeypatch):
     gold_calls: list[list[str]] = []
     jaccard_calls: list[list[str]] = []
 
-    def fake_gold_filter(candidates, golds, *, original_question=None, config=None):
+    def fake_gold_filter(candidates, golds, *, original_question=None, config=None, **kwargs):
         gold_calls.append(list(candidates))
         return [True] * len(list(candidates))  # all pass
 
@@ -212,7 +214,7 @@ def test_no_gold_answer_falls_back_to_jaccard(monkeypatch):
     gold_calls: list[list[str]] = []
     jaccard_calls: list[list[str]] = []
 
-    def fake_gold_filter(candidates, golds, *, original_question=None, config=None):
+    def fake_gold_filter(candidates, golds, *, original_question=None, config=None, **kwargs):
         gold_calls.append(list(candidates))
         return [True] * len(list(candidates))
 

@@ -39,8 +39,11 @@ def test_only_expected_models_are_local():
     """Guard against a future model being added with provider=local / has_hidden
     but without review — both imply the in-process transformers backend."""
     cfg = load_config()
-    # 3 eval models + the Phi-4 generator (P3-3) are the expected local models.
-    local_expected = {"llama_3_1_8b", "mistral_7b_v03", "qwen_2_5_7b", "phi_4_14b"}
+    # 3 eval models + the Phi-4 generator (P3-3) + the OLMo-2 swap-arm
+    # generator/judge (R6 width dial, reviewed 2026-08-07 — NEVER an eval
+    # model) are the expected local models.
+    local_expected = {"llama_3_1_8b", "mistral_7b_v03", "qwen_2_5_7b",
+                      "phi_4_14b", "olmo_2_13b"}
     for k, m in cfg.models.items():
         if m.provider == "local" or m.has_hidden:
             assert k in local_expected, f"{k} unexpectedly marked provider=local/has_hidden=True"

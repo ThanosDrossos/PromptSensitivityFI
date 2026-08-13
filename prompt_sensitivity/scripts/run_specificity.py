@@ -274,6 +274,7 @@ def _graded_f_scores(
 def _generate_spec_paraphrases(
     config, rows: list[SpecRow], max_paraphrases: int,
     paraphrase_cache: str | None = None,
+    width_arm: dict | None = None,
 ) -> dict[tuple[str, int], list[str]]:
     """Build (and persist) the paraphrase universe per (question_id, spec_level).
 
@@ -283,6 +284,11 @@ def _generate_spec_paraphrases(
     (question_id, spec_level); a question that yields nothing falls back to its
     own text as a singleton. The multilevel ladder passes its OWN cache — the
     (qid, 1) key means "disambiguated" here but "L_mid" there.
+
+    `width_arm` (R6 generator-width dial): a resolved WIDTH_ARMS spec pinning
+    the roles / temperature / generator model of this arm's generator G. The
+    NLI, gold-preservation, and dedup gates stay IDENTICAL across arms — only
+    the proposal distribution changes, which is the manipulation.
     """
     from ..paraphrases.pipeline import build_paraphrase_set
 
@@ -326,15 +332,44 @@ def _generate_spec_paraphrases(
         # subset's answer union); otherwise the two-level rule applies.
         gold_set = row.constraint_answers or (
             row.all_answers if row.spec_level == 0 else row.target_answers)
+        reject_stats: dict | None = None
         try:
             pset = build_paraphrase_set(
                 f"{row.question_id}::L{row.spec_level}",
                 row.question_text,
                 config=config,
                 gold_answers=gold_set or row.target_answers,
+                roles=(width_arm or {}).get("roles"),
+                generator_temperature=(width_arm or {}).get("temperature"),
+                generator_model=(width_arm or {}).get("generator_model"),
+                judge_model=(width_arm or {}).get("judge_model"),
             )
             texts = [ap.text for ap in pset.accepted][:max_paraphrases]
             outcome = "accepted"
+            # Gate-censoring sidecar (R6 manipulation check + R9): the width
+            # dial is only interpretable if the identical gates did not censor
+            # one arm into another's width — so acceptance/rejection counts per
+            # gate must be persisted, never just logged. Best-effort by design:
+            # a stats problem must never void a successfully built universe.
+            try:
+                from collections import Counter
+                reasons = Counter(r.reason for r in (getattr(pset, "rejected", None) or []))
+                thr = getattr(pset, "nli_threshold_used", None)
+                reject_stats = {
+                    "question_id": row.question_id, "spec_level": row.spec_level,
+                    "n_accepted": len(pset.accepted),
+                    "n_rejected_nli": reasons.get("nli_low", 0) + reasons.get("nli_one_direction", 0),
+                    "n_rejected_constraint": reasons.get("constraint_mismatch", 0),
+                    "n_rejected_dedup": (reasons.get("edit_distance_close", 0)
+                                         + reasons.get("exact_duplicate", 0)),
+                    "regeneration_attempts": int(getattr(pset, "regeneration_attempts", 0) or 0),
+                    "nli_threshold_used": float(thr) if thr is not None else float("nan"),
+                    "dropped": bool(getattr(pset, "dropped", False)),
+                }
+            except Exception as stats_exc:  # noqa: BLE001
+                logger.warning("reject-stats sidecar failed for {} L{}: {}",
+                               row.question_id, row.spec_level, stats_exc)
+                reject_stats = None
         except Exception as exc:  # noqa: BLE001
             logger.warning("paraphrase gen failed for {} L{}: {}",
                            row.question_id, row.spec_level, exc)
@@ -354,6 +389,11 @@ def _generate_spec_paraphrases(
              "outcome": outcome, "paraphrase_idx": idx, "text": text}
             for idx, text in enumerate(texts)
         ])
+        if reject_stats is not None:
+            _append_paraphrase_rows(
+                parquet_path.with_name(parquet_path.stem + "_reject_stats.parquet"),
+                [reject_stats],
+            )
     if n_gen:
         logger.info("generated + persisted {} new universes -> {}", n_gen, parquet_path)
     return out
@@ -644,6 +684,15 @@ def _parse_args() -> argparse.Namespace:
                              "identical across levels+paraphrases (0.0 = "
                              "closed-book). Use a DISTINCT --out per fraction: "
                              "the resume key ignores this knob")
+    # ---- R6 generator-width dial (rho_F positive control) ----
+    parser.add_argument("--width-arm", choices=["narrow", "medium", "wide", "swap"],
+                        default=None,
+                        help="R6: pin the paraphrase generator G to a width arm "
+                             "(prompts.WIDTH_ARMS). Auto-selects the arm's own "
+                             "paraphrase cache unless --paraphrase-cache is given. "
+                             "NLI/gold/dedup gates are unchanged — only the "
+                             "proposal distribution moves. 'medium' is the "
+                             "production configuration (reuses the v3 cache).")
     return parser.parse_args()
 
 
@@ -658,6 +707,28 @@ def main() -> int:
         # two-level cache but "L_mid" here — sharing would poison both ladders.
         args.paraphrase_cache = "data/paraphrases_ambigqa_ml.parquet"
         logger.info("multilevel ladder -> paraphrase cache {}", args.paraphrase_cache)
+
+    # ---- R6 width dial: resolve the arm and auto-separate its cache ---------
+    width_arm_spec: dict | None = None
+    if args.width_arm is not None:
+        from ..paraphrases.prompts import resolve_width_arm
+
+        if args.ladder == "multilevel":
+            logger.error("--width-arm is a two-level experiment; not combinable "
+                         "with --ladder multilevel")
+            return 1
+        width_arm_spec = resolve_width_arm(args.width_arm)
+        if args.paraphrase_cache is None:
+            # each arm gets its own universe cache; sharing would let one arm's
+            # persisted universes silently serve another's eval
+            args.paraphrase_cache = width_arm_spec["cache"]
+            logger.info("width arm '{}' -> paraphrase cache {}",
+                        args.width_arm, args.paraphrase_cache)
+        gen_key = width_arm_spec["generator_model"]
+        if gen_key is not None and gen_key not in config.models:
+            logger.error("width arm '{}' needs model key {!r} in config.models",
+                         args.width_arm, gen_key)
+            return 1
     try:
         rows, questions, context_mode, evidence_max_chars = load_spec_rows(
             config, n_questions=args.n_questions, context_mode=args.context_mode,
@@ -695,7 +766,8 @@ def main() -> int:
 
     # --- paraphrase universes (per question x level) -------------------------
     paraphrases = _generate_spec_paraphrases(
-        config, rows, args.max_paraphrases, paraphrase_cache=args.paraphrase_cache)
+        config, rows, args.max_paraphrases, paraphrase_cache=args.paraphrase_cache,
+        width_arm=width_arm_spec)
 
     if args.prep_only:
         # v3 topology (FI_PROBES_PLAN.md §4): ONE prep chain builds every

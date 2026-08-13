@@ -115,7 +115,10 @@ def test_paraphrase_universes_persist_incrementally(monkeypatch, tmp_path):
 
     snapshots: list[int] = []
 
-    def fake_build(qid, text, *, config=None, gold_answer=None, gold_answers=None):
+    # **kwargs: the real build_paraphrase_set grew optional R6 width-dial kwargs
+    # (roles / generator_temperature / generator_model / judge_model); fakes must
+    # keep accepting whatever the driver passes.
+    def fake_build(qid, text, *, config=None, gold_answer=None, gold_answers=None, **kwargs):
         # capture how many rows were ALREADY persisted when this universe starts
         snapshots.append(len(pd.read_parquet(cache)) if cache.exists() else 0)
         if text == "A?":
@@ -161,7 +164,7 @@ def test_generation_uses_multi_gold_at_L0_and_target_at_L1(tmp_path, monkeypatch
     ]
     seen: dict[int, list[str]] = {}
 
-    def capture_build(qid, text, *, config=None, gold_answer=None, gold_answers=None):
+    def capture_build(qid, text, *, config=None, gold_answer=None, gold_answers=None, **kwargs):
         lvl = 0 if qid.endswith("L0") else 1
         seen[lvl] = list(gold_answers) if gold_answers is not None else None
         return type("PS", (), {"accepted": [type("AP", (), {"text": text})()]})()

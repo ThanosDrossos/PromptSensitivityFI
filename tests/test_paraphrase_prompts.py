@@ -48,8 +48,21 @@ def test_system_prompt_forbids_answering():
 
 
 def test_personas_documented_for_writeup():
-    """Sprint 2 writeup needs the persona definitions; keep them queryable."""
+    """Sprint 2 writeup needs the persona definitions; keep them queryable.
+
+    Since R6 (2026-08-07) the persona dict also carries the width-dial arms'
+    roles, so the invariant is containment both ways: every production role AND
+    every role referenced by any WIDTH_ARMS spec has a documented persona, and
+    no persona exists that nothing references.
+    """
+    from prompt_sensitivity.paraphrases.prompts import WIDTH_ARMS
+
     personas = list_persona_descriptions()
-    assert set(personas) == set(ROLE_NAMES)
+    assert set(ROLE_NAMES) <= set(personas)
+    referenced = set(ROLE_NAMES)
+    for spec in WIDTH_ARMS.values():
+        assert set(spec["roles"]) <= set(personas)
+        referenced |= set(spec["roles"])
+    assert set(personas) == referenced, "orphan personas would be dead config"
     for p in personas.values():
         assert len(p) > 10

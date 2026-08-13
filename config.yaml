@@ -160,6 +160,16 @@ models:
     chat_logprobs: false
     echo_completions: false
     has_hidden: false
+  olmo_2_13b:
+    # R6 width dial (2026-08-07): the paraphraser-SWAP arm's generator ONLY —
+    # never an eval model. AI2 OLMo-2, Apache-2.0, UNGATED on HF (no token
+    # friction on the cluster), different family + training data (Dolma) from
+    # Phi-4 AND from all three eval models, which is the point of the ablation.
+    provider: local
+    model_id: "allenai/OLMo-2-1124-13B-Instruct"
+    chat_logprobs: false
+    echo_completions: false
+    has_hidden: false
   gpt_4o:
     # LEGACY gateway entry — kept so non-cluster gateway runs still resolve, but
     # UNUSED on the cluster (no LiteLLM endpoint there). Not a `provider: local`

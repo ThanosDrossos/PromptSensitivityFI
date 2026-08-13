@@ -393,9 +393,31 @@ _CACHE: LLMCache | None = None
 
 
 def _get_cache(config: Config) -> LLMCache:
+    """Resolve the LLM cache, honouring the PSF_CACHE_DB env override.
+
+    WHY the override exists (2026-08-08 post-mortem, R6 eval): SQLite in WAL
+    mode coordinates writers through an mmapped -shm file, which is UNSAFE
+    across nodes on a network filesystem. Nine concurrent eval chains sharing
+    data/cache/llm_cache.sqlite over Lustre produced a lock storm
+    ("database is locked" -> 93 failed cells/window) and outright SIGBUS
+    crashes (exit 135) where the cross-node shm mapping broke. Each singleton
+    chain is serial by construction, so pointing every chain at its OWN db
+    (one writer per file, ever) removes both failure modes. Set by
+    cluster/width_dial.sbatch; unset -> the config path, exactly as before.
+    """
     global _CACHE
     if _CACHE is None:
-        _CACHE = LLMCache(config.cache_path())
+        from pathlib import Path
+
+        override = os.environ.get("PSF_CACHE_DB")
+        if override:
+            path = Path(override)
+            if not path.is_absolute():
+                path = config.repo_root() / path
+            logger.info("LLM cache override (PSF_CACHE_DB): {}", path)
+            _CACHE = LLMCache(path)
+        else:
+            _CACHE = LLMCache(config.cache_path())
     return _CACHE
 
 

@@ -115,6 +115,28 @@ PULL_FILES=(
   data/full_mistral_7b_v03.parquet
   data/full_qwen_2_5_7b.parquet
   data/full_run.parquet
+  # R1 union-gold control arm (review 2026-08-06 §2.1). NOTE: the tar fallback
+  # pulls every data/*.parquet anyway, but the rsync path fetches ONLY what is
+  # listed here — a new output must be added or it is silently never pulled.
+  data/union_gold_qwen_2_5_7b.parquet
+  data/union_gold_llama_3_1_8b.parquet
+  data/union_gold_mistral_7b_v03.parquet
+  # R6 generator-width dial (rho_F positive control + paraphraser-swap ablation)
+  data/paraphrases_width_narrow.parquet
+  data/paraphrases_width_wide.parquet
+  data/paraphrases_width_swap.parquet
+  data/paraphrases_width_narrow_reject_stats.parquet
+  data/paraphrases_width_wide_reject_stats.parquet
+  data/paraphrases_width_swap_reject_stats.parquet
+  data/width_narrow_qwen_2_5_7b.parquet
+  data/width_narrow_llama_3_1_8b.parquet
+  data/width_narrow_mistral_7b_v03.parquet
+  data/width_wide_qwen_2_5_7b.parquet
+  data/width_wide_llama_3_1_8b.parquet
+  data/width_wide_mistral_7b_v03.parquet
+  data/width_swap_qwen_2_5_7b.parquet
+  data/width_swap_llama_3_1_8b.parquet
+  data/width_swap_mistral_7b_v03.parquet
 )
 
 # ---- rsync transport (preferred) ------------------------------------------

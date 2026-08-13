@@ -84,6 +84,10 @@ def build_paraphrase_set(
     config: Config | None = None,
     gold_answer: str | None = None,
     gold_answers: Sequence[str] | None = None,
+    roles: Sequence[str] | None = None,
+    generator_temperature: float | None = None,
+    generator_model: str | None = None,
+    judge_model: str | None = None,
 ) -> ParaphraseSet:
     """Run the full pipeline for one question.
 
@@ -114,7 +118,9 @@ def build_paraphrase_set(
     target = pcfg.n_per_question
     samples_per_template = pcfg.samples_per_template
     max_total = pcfg.max_regeneration_attempts  # interpreted as max RAW candidates / template
-    roles = list(pcfg.templates)  # type: ignore[assignment]
+    # R6 width dial: an arm may pin its own role list / temperature / generator;
+    # defaults reproduce the production configuration bit-for-bit.
+    roles = list(roles) if roles is not None else list(pcfg.templates)  # type: ignore[assignment]
 
     pset = ParaphraseSet(question_id=question_id)
     all_raw: list[RawParaphrase] = []
@@ -140,6 +146,8 @@ def build_paraphrase_set(
             config=config,
             sample_idxs=sample_idxs,
             roles=roles,
+            temperature=generator_temperature,
+            generator_model=generator_model,
         )
         if not new_raw:
             logger.warning("qid={} generated zero candidates this round", question_id)
@@ -219,6 +227,7 @@ def build_paraphrase_set(
                     _golds,
                     original_question=question_text,
                     config=config,
+                    judge_model=judge_model,
                 )
                 for s, passed in zip(post_nli, bools, strict=True):
                     if not passed:
@@ -367,6 +376,7 @@ def build_paraphrase_set(
                     all_raw,
                     config,
                     gold_answers=_golds,
+                    judge_model=judge_model,
                 )
             # Already at fallback threshold and still short: give up.
             pset.dropped = True
@@ -404,6 +414,7 @@ def _retry_with_relaxed(
     config: Config,
     *,
     gold_answers: Sequence[str] | None = None,
+    judge_model: str | None = None,
 ) -> ParaphraseSet:
     """Re-run filters at the fallback threshold on the cumulated raw candidates.
 
@@ -449,6 +460,7 @@ def _retry_with_relaxed(
             gold_answers,
             original_question=question_text,
             config=config,
+            judge_model=judge_model,
         )
         for s, passed in zip(post_nli, bools, strict=True):
             if not passed:

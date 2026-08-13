@@ -283,6 +283,7 @@ def judge_contains_gold(
     *,
     original_question: str,
     config: Config | None = None,
+    judge_model: str | None = None,
 ) -> bool:
     """Single-call yes/no: is `gold_answer` still a valid answer to `paraphrase`?
 
@@ -297,7 +298,10 @@ def judge_contains_gold(
     """
     if config is None:
         config = load_config()
-    judge_key = config.paraphrases.constraint_filter.judge_model
+    # R6 swap arm: the caller may pin a different judge (judge == generator is
+    # the production rule; the swap arm keeps that rule under its own generator
+    # because the 40 GB A100 cannot hold two 13-14B models at once).
+    judge_key = judge_model or config.paraphrases.constraint_filter.judge_model
     client = get_client(judge_key, config)
     resp = client.complete(
         _gold_judge_request(judge_key, paraphrase, gold_answer, original_question, config)
@@ -312,11 +316,13 @@ def filter_by_constraint_with_gold(
     *,
     original_question: str,
     config: Config | None = None,
+    judge_model: str | None = None,
 ) -> list[bool]:
     """Apply the gold-based filter to a batch of candidates. Returns parallel list of bools."""
     return [
         judge_contains_gold(
-            c, gold_answer, original_question=original_question, config=config
+            c, gold_answer, original_question=original_question, config=config,
+            judge_model=judge_model,
         )
         for c in candidates
     ]
@@ -328,6 +334,7 @@ def filter_by_constraint_with_gold_multi(
     *,
     original_question: str,
     config: Config | None = None,
+    judge_model: str | None = None,
 ) -> list[bool]:
     """Multi-gold gold-based filter: a candidate PASSES if it preserves ANY of the
     accepted answers (logical OR over `gold_answers`).
@@ -353,6 +360,7 @@ def filter_by_constraint_with_gold_multi(
         results = filter_by_constraint_with_gold(
             [cands[i] for i in pending], gold,
             original_question=original_question, config=config,
+            judge_model=judge_model,
         )
         for i, ok in zip(pending, results):
             if ok:

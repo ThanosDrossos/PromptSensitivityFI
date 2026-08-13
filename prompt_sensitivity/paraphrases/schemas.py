@@ -10,6 +10,12 @@ from pydantic import BaseModel, ConfigDict, Field
 RoleName = Literal[
     "neutral", "journalist", "casual_user", "domain_expert",
     "student", "terse_keyword", "formal_academic", "second_language",
+    # R6 width dial (2026-08-07): NARROW arm — minimal-edit rewrites.
+    "minimal_synonym", "minimal_reorder", "minimal_function_words",
+    # R6 width dial: WIDE arm — fluent register/syntax/indirectness shifts.
+    "colloquial_chatty", "verbose_polite", "cleft_or_passive",
+    "indirect_statement", "headline_style", "spoken_conversational",
+    "narrative_context", "exam_question",
 ]
 RejectionReason = Literal[
     "nli_low",

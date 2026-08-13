@@ -43,6 +43,8 @@ def generate_raw_paraphrases(
     config: Config | None = None,
     sample_idxs: Iterable[int] | None = None,
     roles: Iterable[RoleName] | None = None,
+    temperature: float | None = None,
+    generator_model: str | None = None,
 ) -> list[RawParaphrase]:
     """Generate raw paraphrase candidates for one question.
 
@@ -62,8 +64,15 @@ def generate_raw_paraphrases(
     sample_idxs = list(sample_idxs)
     roles = list(roles)
 
-    client = get_client(pcfg.generator_model, config)
-    model_entry = config.models[pcfg.generator_model]
+    # R6 width-dial overrides: an arm may pin its own sampling temperature and
+    # (for the paraphraser-swap ablation) a different-family generator model.
+    # Cache safety is by construction — temperature, messages (persona text)
+    # and model_id are all part of the request hash, so arm requests can never
+    # collide with the production universes.
+    gen_key = generator_model or pcfg.generator_model
+    gen_temperature = temperature if temperature is not None else pcfg.generator_temperature
+    client = get_client(gen_key, config)
+    model_entry = config.models[gen_key]
 
     out: list[RawParaphrase] = []
     for role in roles:
@@ -74,7 +83,7 @@ def generate_raw_paraphrases(
                 provider=model_entry.provider,  # type: ignore[arg-type]
                 model_id=model_entry.model_id,
                 messages=messages,
-                temperature=pcfg.generator_temperature,
+                temperature=gen_temperature,
                 top_p=1.0,
                 max_tokens=128,
                 seed=seed,
@@ -91,7 +100,7 @@ def generate_raw_paraphrases(
                     role=role,  # type: ignore[arg-type]
                     sample_idx=s,
                     text=text,
-                    generator_model_key=pcfg.generator_model,
+                    generator_model_key=gen_key,
                     generator_seed=seed,
                     request_hash=resp.request_hash,
                 )

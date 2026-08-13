@@ -65,6 +65,12 @@ class LLMCache:
         self._conn = sqlite3.connect(str(self.path), check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
+        # 2026-08-08: retry briefly on lock contention instead of raising
+        # "database is locked" into the caller (which failed whole eval cells).
+        # NOTE this is mitigation only — cross-NODE sharing of one sqlite file
+        # over Lustre is structurally unsafe (WAL shm mmap => SIGBUS); the real
+        # fix is one DB per serial job chain via PSF_CACHE_DB (registry._get_cache).
+        self._conn.execute("PRAGMA busy_timeout=60000")
         for stmt in _DDL.strip().split(";"):
             stmt = stmt.strip()
             if stmt:

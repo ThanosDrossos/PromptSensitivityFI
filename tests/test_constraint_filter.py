@@ -159,7 +159,7 @@ def test_filter_by_constraint_with_gold_multi_is_OR_and_short_circuits(monkeypat
     accept = {("c_target", "GOLD_T"), ("c_other", "GOLD_O")}
     calls: list[tuple[str, str]] = []
 
-    def fake_judge(candidate, gold, *, original_question=None, config=None):
+    def fake_judge(candidate, gold, *, original_question=None, config=None, **kwargs):
         calls.append((candidate, gold))
         return (candidate, gold) in accept
 
