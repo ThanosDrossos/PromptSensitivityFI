@@ -99,3 +99,12 @@ margin claim is +0.12, not "length collapses below chance".
 Conclusion: an explicit "padded prompt" arm (L0-long / L1-long) is NOT needed
 to defend the causal claim; the existing paraphrase universe already provides
 a meaning-preserving length control over the relevant range.
+
+**[2026-08-16 note]** `data/probe_eval_hardened.md` previously evaluated the
+holdout WITHOUT excluding the 150 training questions (n = 2,002, AUROC
+.678/.670/.678); its `eval_ood` now applies the same exclusion as this file's
+evaluation, and the two artifacts agree: **n = 1,852, AUROC .667/.655/.670**.
+The hardened artifact is canonical (it also carries the frozen baselines and
+the operating point on the clean subset); in-distribution probe refits vary by
+about ±0.02 across OS/BLAS backends (bit-identical within a platform) — the
+committed values are from the macOS reproduction, 2026-08-16.
