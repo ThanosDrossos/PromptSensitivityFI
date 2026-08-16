@@ -25,6 +25,7 @@ Output: data/stats_hygiene.md — the Results section quotes numbers from here.
 
 from __future__ import annotations
 
+import json
 import sys
 
 import numpy as np
@@ -89,7 +90,13 @@ def main() -> int:
     root = config.repo_root()
 
     # ---- assemble the endpoint deltas per model -----------------------------
-    endpoints = []           # rows: model, endpoint, n, effect, ci_lo, ci_hi, p
+    # 2026-08-16 correction (review 08-14 §3.5.3): the family's rho_F endpoint
+    # is computed under UNION gold, matching the family's declared primary
+    # gold set; the target-gold rho_F test moves beneath the family as a
+    # replication line. Previously the in-family row was target gold while the
+    # text called the family union-primary.
+    endpoints = []  # rows: model, endpoint, n, effect, ci_lo, ci_hi, p
+    replication = []  # outside the family: rho_F target gold, permissive scoring
     per_q_deltas: dict[tuple[str, str], pd.Series] = {}
     for m in _MODELS:
         v3 = pd.read_parquet(root / f"data/specificity_v3_{m}.parquet")
@@ -98,20 +105,51 @@ def main() -> int:
         k = int(v3["n_samples_per_prompt"].iloc[0])
         fit = fit_hierarchical_rho_f(cells, k)
         v3 = v3.assign(rho_f_hier=fit.rho_mean)
+        ucells = [list(x) if x is not None else None for x in ug["f_graded_union_per_paraphrase"]]
+        fit_u = fit_hierarchical_rho_f(ucells, k)
+        ug = ug.assign(rho_f_hier_union=fit_u.rho_mean)
 
         frames = {
             "accuracy (union gold)  [PRIMARY]": paired_deltas(ug, "f_graded_union_mean"),
             "accuracy (target gold)": paired_deltas(v3, "f_graded_mean"),
             "H_sem": paired_deltas(v3, "h_sem_mean"),
-            "rho_F (hierarchical)": paired_deltas(v3, "rho_f_hier"),
+            "rho_F (hierarchical, union gold)": paired_deltas(ug, "rho_f_hier_union"),
         }
+        for name, d in {
+            "rho_F (hierarchical, target gold)": paired_deltas(v3, "rho_f_hier"),
+            "accuracy (target gold, permissive scoring)": paired_deltas(v3, "f_mean_permissive"),
+        }.items():
+            if d.empty:
+                continue
+            eff, lo, hi = cluster_boot_ci(d)
+            p = stats.wilcoxon(d).pvalue if (d != 0).any() else 1.0
+            replication.append(
+                {
+                    "model": m,
+                    "endpoint": name,
+                    "n": len(d),
+                    "effect": eff,
+                    "ci_lo": lo,
+                    "ci_hi": hi,
+                    "p": float(p),
+                }
+            )
         for name, d in frames.items():
             if d.empty:
                 continue
             eff, lo, hi = cluster_boot_ci(d)
             p = stats.wilcoxon(d).pvalue if (d != 0).any() else 1.0
-            endpoints.append({"model": m, "endpoint": name, "n": len(d),
-                              "effect": eff, "ci_lo": lo, "ci_hi": hi, "p": float(p)})
+            endpoints.append(
+                {
+                    "model": m,
+                    "endpoint": name,
+                    "n": len(d),
+                    "effect": eff,
+                    "ci_lo": lo,
+                    "ci_hi": hi,
+                    "p": float(p),
+                }
+            )
             per_q_deltas[(m, name)] = d
 
     dfp = pd.DataFrame(endpoints)
@@ -130,32 +168,69 @@ def main() -> int:
             dep_rows.append({"endpoint": name, "pair": f"{ma} ~ {mb}", "spearman": float(r)})
         pooled = j.mean(axis=1)
         eff, lo, hi = cluster_boot_ci(pooled)
-        pooled_rows.append({"endpoint": name, "n": len(pooled), "effect": eff,
-                            "ci_lo": lo, "ci_hi": hi,
-                            "p": float(stats.wilcoxon(pooled).pvalue)})
+        pooled_rows.append(
+            {
+                "endpoint": name,
+                "n": len(pooled),
+                "effect": eff,
+                "ci_lo": lo,
+                "ci_hi": hi,
+                "p": float(stats.wilcoxon(pooled).pvalue),
+            }
+        )
 
     # ---- reliability ---------------------------------------------------------
     rel_rows = []
     for m in _MODELS:
         v3 = pd.read_parquet(root / f"data/specificity_v3_{m}.parquet")
         cells = [list(x) if x is not None else None for x in v3["f_graded_per_paraphrase"]]
-        rel = split_half_reliability(cells, int(v3["n_samples_per_prompt"].iloc[0]),
-                                     n_splits=200)
+        rel = split_half_reliability(cells, int(v3["n_samples_per_prompt"].iloc[0]), n_splits=200)
         rel_rows.append({"model": m, "split_half_SB": rel})
 
     # ---- render ---------------------------------------------------------------
     L = ["# R8 — statistical hygiene (source of truth for Results)", ""]
-    L.append("**Declared primary family** (12 paired Wilcoxon tests; family-wise Holm + BH). "
-             "The primary effect of the manipulation is Δ accuracy under UNION gold; "
-             "target-gold Δ is the protocol comparison (its excess over union = the grading "
-             "lottery); FI_out_fixed is excluded — its test IS the H_sem test (affine "
-             "relabeling, identical p).")
+    L.append(
+        "**Declared primary family** (12 paired Wilcoxon tests; family-wise Holm + BH). "
+        "The primary effect of the manipulation is Δ accuracy under UNION gold; "
+        "target-gold Δ is the protocol comparison (its excess over union = the grading "
+        "lottery); FI_out_fixed is excluded — its test IS the H_sem test (affine "
+        "relabeling, identical p)."
+    )
     L.append("")
-    L.append("| model | endpoint | n | effect (L1−L0) | 95 % CI (question-clustered) | p | Holm | BH |")
+    L.append(
+        "| model | endpoint | n | effect (L1−L0) | 95 % CI (question-clustered) | p | Holm | BH |"
+    )
     L.append("|---|---|---|---|---|---|---|---|")
     for _, r in dfp.iterrows():
-        L.append(f"| {r.model} | {r.endpoint} | {r.n} | {r.effect:+.4f} | "
-                 f"[{r.ci_lo:+.4f}, {r.ci_hi:+.4f}] | {r.p:.2g} | {r.p_holm:.2g} | {r.p_bh:.2g} |")
+        L.append(
+            f"| {r.model} | {r.endpoint} | {r.n} | {r.effect:+.4f} | "
+            f"[{r.ci_lo:+.4f}, {r.ci_hi:+.4f}] | {r.p:.2g} | {r.p_holm:.2g} | {r.p_bh:.2g} |"
+        )
+    L.append("")
+    L.append("## Replication lines (outside the declared family)")
+    L.append("")
+    L.append(
+        "The family's rho_F endpoint is union gold since 2026-08-16 (it was "
+        "target gold while the family was declared union-primary — an "
+        "inconsistency, review 08-14 §3.5.3). The target-gold rho_F test and "
+        "the permissive-threshold scoring promised in Methods are reported "
+        "here, uncorrected, as replication checks:"
+    )
+    L.append("")
+    L.append("| model | endpoint | n | effect (L1−L0) | 95 % CI | p |")
+    L.append("|---|---|---|---|---|---|")
+    for r in replication:
+        L.append(
+            f"| {r['model']} | {r['endpoint']} | {r['n']} | {r['effect']:+.4f} | "
+            f"[{r['ci_lo']:+.4f}, {r['ci_hi']:+.4f}] | {r['p']:.2g} |"
+        )
+    L.append("")
+    L.append(
+        "The evidential strength of the rho_F null is bounded by the "
+        "estimator's attenuation and by the draws-based test — see "
+        "`data/rho_f_recovery_sim.md` (a true Delta of +0.20 reports as "
+        "~+0.03-0.08; the Rubin-pooled draws CIs span roughly ±0.05-0.08)."
+    )
     L.append("")
     L.append("## The three models are correlated measurements, not replications")
     L.append("")
@@ -166,14 +241,18 @@ def main() -> int:
     for r in dep_rows:
         L.append(f"| {r['endpoint']} | {r['pair']} | {r['spearman']:+.3f} |")
     L.append("")
-    L.append("The honest single-experiment test (per-question deltas averaged over the three "
-             "models, one Wilcoxon per endpoint):")
+    L.append(
+        "The honest single-experiment test (per-question deltas averaged over the three "
+        "models, one Wilcoxon per endpoint):"
+    )
     L.append("")
     L.append("| endpoint | n questions | pooled effect | 95 % CI | p |")
     L.append("|---|---|---|---|---|")
     for r in pooled_rows:
-        L.append(f"| {r['endpoint']} | {r['n']} | {r['effect']:+.4f} | "
-                 f"[{r['ci_lo']:+.4f}, {r['ci_hi']:+.4f}] | {r['p']:.2g} |")
+        L.append(
+            f"| {r['endpoint']} | {r['n']} | {r['effect']:+.4f} | "
+            f"[{r['ci_lo']:+.4f}, {r['ci_hi']:+.4f}] | {r['p']:.2g} |"
+        )
     L.append("")
     L.append("## Reliability (replaces the retired k10-vs-k20 comparison)")
     L.append("")
@@ -184,18 +263,29 @@ def main() -> int:
     for r in rel_rows:
         L.append(f"| {r['model']} | {r['split_half_SB']:.3f} |")
     L.append("")
-    L.append("Consequences: per-question rho_F point claims are not supportable; observed "
-             "cross-metric and cross-model correlations are attenuated by these reliabilities; "
-             "the k=20 arm is reported only as a sampling-extension check, never as reliability.")
+    L.append(
+        "Consequences: per-question rho_F point claims are not supportable; observed "
+        "cross-metric and cross-model correlations are attenuated by these reliabilities; "
+        "the k=20 arm is reported only as a sampling-extension check, never as reliability."
+    )
     L.append("")
 
     out = root / "data/stats_hygiene.md"
     out.write_text("\n".join(L), encoding="utf-8")
+    payload = {
+        "endpoints": dfp.to_dict(orient="records"),
+        "replication": replication,
+        "dependence": dep_rows,
+        "pooled": pooled_rows,
+        "reliability": rel_rows,
+    }
+    out_json = root / "data/stats_hygiene.json"
+    out_json.write_text(json.dumps(payload, indent=1), encoding="utf-8")
     try:
         print("\n".join(L))
     except UnicodeEncodeError:
         print(f"(console cannot render; see {out})")
-    logger.info("wrote {}", out)
+    logger.info("wrote {} and {}", out, out_json)
     return 0
 
 

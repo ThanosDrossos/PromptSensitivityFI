@@ -1,0 +1,256 @@
+{
+ "endpoints": [
+  {
+   "model": "qwen_2_5_7b",
+   "endpoint": "accuracy (union gold)  [PRIMARY]",
+   "n": 150,
+   "effect": 0.06386666666666667,
+   "ci_lo": -0.0002066666666666721,
+   "ci_hi": 0.12786999999999993,
+   "p": 0.03094714619642841,
+   "p_holm": 0.15473573098214205,
+   "p_bh": 0.04534620712129879
+  },
+  {
+   "model": "qwen_2_5_7b",
+   "endpoint": "accuracy (target gold)",
+   "n": 150,
+   "effect": 0.22473333333333328,
+   "ci_lo": 0.16113000000000002,
+   "ci_hi": 0.2920666666666667,
+   "p": 1.3417066449748419e-09,
+   "p_holm": 1.3417066449748419e-08,
+   "p_bh": 5.3668265798993675e-09
+  },
+  {
+   "model": "qwen_2_5_7b",
+   "endpoint": "H_sem",
+   "n": 150,
+   "effect": -0.12389913337143871,
+   "ci_lo": -0.20490044133064733,
+   "ci_hi": -0.04543400741479961,
+   "p": 0.01134980598108031,
+   "p_holm": 0.06809883588648186,
+   "p_bh": 0.01945681025328053
+  },
+  {
+   "model": "qwen_2_5_7b",
+   "endpoint": "rho_F (hierarchical, union gold)",
+   "n": 150,
+   "effect": -0.01306388367896604,
+   "ci_lo": -0.040604325430785154,
+   "ci_hi": 0.01372720711675371,
+   "p": 0.5405856474169144,
+   "p_holm": 1.0,
+   "p_bh": 0.5405856474169144
+  },
+  {
+   "model": "llama_3_1_8b",
+   "endpoint": "accuracy (union gold)  [PRIMARY]",
+   "n": 150,
+   "effect": 0.12513333333333332,
+   "ci_lo": 0.06673166666666665,
+   "ci_hi": 0.18587166666666655,
+   "p": 3.813289582699528e-05,
+   "p_holm": 0.00030506316661596224,
+   "p_bh": 9.151894998478867e-05
+  },
+  {
+   "model": "llama_3_1_8b",
+   "endpoint": "accuracy (target gold)",
+   "n": 150,
+   "effect": 0.2378666666666667,
+   "ci_lo": 0.18259666666666668,
+   "ci_hi": 0.296535,
+   "p": 1.3497749902768316e-13,
+   "p_holm": 1.6197299883321978e-12,
+   "p_bh": 1.6197299883321978e-12
+  },
+  {
+   "model": "llama_3_1_8b",
+   "endpoint": "H_sem",
+   "n": 150,
+   "effect": -0.4333172401491834,
+   "ci_lo": -0.5830876468533566,
+   "ci_hi": -0.284184292982241,
+   "p": 3.740686692056092e-07,
+   "p_holm": 3.366618022850483e-06,
+   "p_bh": 1.1222060076168275e-06
+  },
+  {
+   "model": "llama_3_1_8b",
+   "endpoint": "rho_F (hierarchical, union gold)",
+   "n": 150,
+   "effect": 0.012602678401187001,
+   "ci_lo": -0.008298397325851255,
+   "ci_hi": 0.033192881593464195,
+   "p": 0.4285493135608006,
+   "p_holm": 1.0,
+   "p_bh": 0.4675083420663279
+  },
+  {
+   "model": "mistral_7b_v03",
+   "endpoint": "accuracy (union gold)  [PRIMARY]",
+   "n": 150,
+   "effect": 0.11886666666666666,
+   "ci_lo": 0.055929999999999994,
+   "ci_hi": 0.18180166666666664,
+   "p": 0.0002639387423185038,
+   "p_holm": 0.0018475711962295264,
+   "p_bh": 0.0005278774846370076
+  },
+  {
+   "model": "mistral_7b_v03",
+   "endpoint": "accuracy (target gold)",
+   "n": 150,
+   "effect": 0.24706666666666668,
+   "ci_lo": 0.18313,
+   "ci_hi": 0.31433666666666665,
+   "p": 1.716990829152298e-11,
+   "p_holm": 1.888689912067528e-10,
+   "p_bh": 1.0301944974913789e-10
+  },
+  {
+   "model": "mistral_7b_v03",
+   "endpoint": "H_sem",
+   "n": 150,
+   "effect": -0.13933038632983188,
+   "ci_lo": -0.27738359005374186,
+   "ci_hi": 0.0011135409664883608,
+   "p": 0.03400965534097409,
+   "p_holm": 0.15473573098214205,
+   "p_bh": 0.04534620712129879
+  },
+  {
+   "model": "mistral_7b_v03",
+   "endpoint": "rho_F (hierarchical, union gold)",
+   "n": 150,
+   "effect": 0.013391715588326874,
+   "ci_lo": -0.011848024685655462,
+   "ci_hi": 0.03885931825619979,
+   "p": 0.40693069788171576,
+   "p_holm": 1.0,
+   "p_bh": 0.4675083420663279
+  }
+ ],
+ "replication": [
+  {
+   "model": "qwen_2_5_7b",
+   "endpoint": "rho_F (hierarchical, target gold)",
+   "n": 150,
+   "effect": -0.0019464094624250365,
+   "ci_lo": -0.017185146755504963,
+   "ci_hi": 0.01370401628045928,
+   "p": 0.9831144048562244
+  },
+  {
+   "model": "qwen_2_5_7b",
+   "endpoint": "accuracy (target gold, permissive scoring)",
+   "n": 150,
+   "effect": 0.2046666666666667,
+   "ci_lo": 0.13599999999999998,
+   "ci_hi": 0.274,
+   "p": 1.19469248254983e-07
+  },
+  {
+   "model": "llama_3_1_8b",
+   "endpoint": "rho_F (hierarchical, target gold)",
+   "n": 150,
+   "effect": 0.01271240165217591,
+   "ci_lo": -0.003062846014961757,
+   "ci_hi": 0.028562598244823566,
+   "p": 0.22153184583519625
+  },
+  {
+   "model": "llama_3_1_8b",
+   "endpoint": "accuracy (target gold, permissive scoring)",
+   "n": 150,
+   "effect": 0.26066666666666666,
+   "ci_lo": 0.18800000000000003,
+   "ci_hi": 0.3353333333333333,
+   "p": 1.6406397088760944e-09
+  },
+  {
+   "model": "mistral_7b_v03",
+   "endpoint": "rho_F (hierarchical, target gold)",
+   "n": 150,
+   "effect": 0.013409040556453177,
+   "ci_lo": -0.011117405396189266,
+   "ci_hi": 0.03824371438568246,
+   "p": 0.4845344456784001
+  },
+  {
+   "model": "mistral_7b_v03",
+   "endpoint": "accuracy (target gold, permissive scoring)",
+   "n": 150,
+   "effect": 0.24733333333333335,
+   "ci_lo": 0.17933333333333332,
+   "ci_hi": 0.31801666666666645,
+   "p": 9.64029644954271e-10
+  }
+ ],
+ "dependence": [
+  {
+   "endpoint": "accuracy (union gold)  [PRIMARY]",
+   "pair": "qwen_2_5_7b ~ llama_3_1_8b",
+   "spearman": 0.6345789392763475
+  },
+  {
+   "endpoint": "accuracy (union gold)  [PRIMARY]",
+   "pair": "qwen_2_5_7b ~ mistral_7b_v03",
+   "spearman": 0.5458434586855362
+  },
+  {
+   "endpoint": "accuracy (union gold)  [PRIMARY]",
+   "pair": "llama_3_1_8b ~ mistral_7b_v03",
+   "spearman": 0.522674198049412
+  },
+  {
+   "endpoint": "H_sem",
+   "pair": "qwen_2_5_7b ~ llama_3_1_8b",
+   "spearman": 0.4373241791028218
+  },
+  {
+   "endpoint": "H_sem",
+   "pair": "qwen_2_5_7b ~ mistral_7b_v03",
+   "spearman": 0.37001976530316183
+  },
+  {
+   "endpoint": "H_sem",
+   "pair": "llama_3_1_8b ~ mistral_7b_v03",
+   "spearman": 0.4265918401296455
+  }
+ ],
+ "pooled": [
+  {
+   "endpoint": "accuracy (union gold)  [PRIMARY]",
+   "n": 150,
+   "effect": 0.10262222222222224,
+   "ci_lo": 0.048708888888888885,
+   "ci_hi": 0.1568244444444444,
+   "p": 3.2932820014570185e-05
+  },
+  {
+   "endpoint": "H_sem",
+   "n": 150,
+   "effect": -0.23218225328348466,
+   "ci_lo": -0.33002072925023007,
+   "ci_hi": -0.13691516282727054,
+   "p": 6.108348564451149e-05
+  }
+ ],
+ "reliability": [
+  {
+   "model": "qwen_2_5_7b",
+   "split_half_SB": 0.38002629670817195
+  },
+  {
+   "model": "llama_3_1_8b",
+   "split_half_SB": 0.5199440970064082
+  },
+  {
+   "model": "mistral_7b_v03",
+   "split_half_SB": 0.571173825203198
+  }
+ ]
+}
