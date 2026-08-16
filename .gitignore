@@ -32,6 +32,8 @@ data/inspect_*/
 *.pptx
 Implementation_Prompt_*.md
 .DS_Store
+# reference-paper library (127 MB of PDFs; synced via backup, not git).
+papers/
 # --- cluster ---
 # Job output fetched back from bwUniCluster; regenerable, don't commit.
 cluster_logs/
