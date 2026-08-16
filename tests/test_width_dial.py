@@ -189,3 +189,33 @@ def test_paired_arm_test_reports_null_when_dial_does_nothing():
             for arm in ("narrow", "medium", "wide")]
     t = paired_arm_test(pd.DataFrame(rows), "sigma2_B")
     assert t["wilcoxon_nw_less_p"] > 0.05
+
+
+def test_paired_arm_test_carries_delta_ci_and_both_test_directions():
+    """One test policy for the whole table: every row gets a CI bound + both p's."""
+    rng = np.random.default_rng(2)
+    rows = []
+    for q in range(40):
+        base = rng.uniform(0.01, 0.05)
+        for lvl in (0, 1):
+            for arm, bump in [("narrow", 0.0), ("medium", 0.02), ("wide", 0.05)]:
+                rows.append({"question_id": f"q{q}", "spec_level": lvl, "arm": arm,
+                             "sigma2_B": base + bump + rng.normal(scale=0.004)})
+    t = paired_arm_test(pd.DataFrame(rows), "sigma2_B")
+    assert t["delta_ci_lo"] < t["delta_nw"] < t["delta_ci_hi"]
+    assert t["delta_nw"] == pytest.approx(0.05, abs=0.01)
+    assert t["wilcoxon_nw_twosided_p"] >= t["wilcoxon_nw_less_p"]
+
+
+def test_unpaired_arm_means_uses_each_arms_own_covered_cells():
+    from prompt_sensitivity.scripts.width_dial_analysis import unpaired_arm_means
+
+    rows = [
+        {"arm": "narrow", "rho_f_mom": 0.1}, {"arm": "narrow", "rho_f_mom": np.nan},
+        {"arm": "medium", "rho_f_mom": 0.2}, {"arm": "medium", "rho_f_mom": 0.4},
+        {"arm": "wide", "rho_f_mom": 0.5},
+    ]
+    g = unpaired_arm_means(pd.DataFrame(rows), "rho_f_mom")
+    assert list(g.index) == ["narrow", "medium", "wide"]
+    assert g.loc["narrow", "count"] == 1          # NaN not counted
+    assert g.loc["medium", "mean"] == pytest.approx(0.3)

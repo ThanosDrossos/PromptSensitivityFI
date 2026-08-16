@@ -48,7 +48,7 @@ from ..config import load_config
 from ..paraphrases.deduplicate import levenshtein_tokens
 
 _MODELS = ["qwen_2_5_7b", "llama_3_1_8b", "mistral_7b_v03"]
-_ARMS = ["narrow", "medium", "wide"]          # the dial; swap handled separately
+_ARMS = ["narrow", "medium", "wide"]  # the dial; swap handled separately
 
 
 # --------------------------------------------------------------------------- #
@@ -92,8 +92,9 @@ def load_universes(config, cache_rel: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def manipulation_check(config, arm_caches: dict[str, str],
-                       questions: set[str] | None) -> tuple[pd.DataFrame, bool, str]:
+def manipulation_check(
+    config, arm_caches: dict[str, str], questions: set[str] | None
+) -> tuple[pd.DataFrame, bool, str]:
     """Per-arm realized width on the common question set; returns (table, ordered?, note)."""
     per_arm = {}
     for arm, cache in arm_caches.items():
@@ -113,20 +114,25 @@ def manipulation_check(config, arm_caches: dict[str, str],
     note = f"arms present: {have}"
     if set(have) >= set(_ARMS):
         # paired per (question, level): is width ordered narrow < medium < wide?
-        piv = tab.pivot_table(index=["question_id", "spec_level"],
-                              columns="arm", values="pairwise_token_dist").dropna()
-        frac_mono = float(((piv["narrow"] < piv["medium"]) &
-                           (piv["medium"] < piv["wide"])).mean())
-        w_nw = stats.wilcoxon(piv["narrow"], piv["wide"],
-                              alternative="less").pvalue if len(piv) > 10 else np.nan
+        piv = tab.pivot_table(
+            index=["question_id", "spec_level"], columns="arm", values="pairwise_token_dist"
+        ).dropna()
+        frac_mono = float(((piv["narrow"] < piv["medium"]) & (piv["medium"] < piv["wide"])).mean())
+        w_nw = (
+            stats.wilcoxon(piv["narrow"], piv["wide"], alternative="less").pvalue
+            if len(piv) > 10
+            else np.nan
+        )
         ordered = bool(
             piv["narrow"].mean() < piv["medium"].mean() < piv["wide"].mean()
             and (np.isnan(w_nw) or w_nw < 0.05)
         )
-        note = (f"cells with full ordering narrow<medium<wide: {frac_mono:.0%}; "
-                f"means {piv['narrow'].mean():.1f} < {piv['medium'].mean():.1f} "
-                f"< {piv['wide'].mean():.1f} (tokens); Wilcoxon narrow<wide "
-                f"p = {w_nw:.2g}; ORDERED = {ordered}")
+        note = (
+            f"cells with full ordering narrow<medium<wide: {frac_mono:.0%}; "
+            f"means {piv['narrow'].mean():.1f} < {piv['medium'].mean():.1f} "
+            f"< {piv['wide'].mean():.1f} (tokens); Wilcoxon narrow<wide "
+            f"p = {w_nw:.2g}; ORDERED = {ordered}"
+        )
     return tab, ordered, note
 
 
@@ -139,16 +145,18 @@ def censoring_table(config, arm_caches: dict[str, str]) -> pd.DataFrame:
             rows.append({"arm": arm, "note": "no sidecar (pre-R6 cache)"})
             continue
         d = pd.read_parquet(side)
-        tot_raw = (d.n_accepted + d.n_rejected_nli + d.n_rejected_constraint
-                   + d.n_rejected_dedup)
-        rows.append({
-            "arm": arm, "universes": len(d),
-            "nli_reject_rate": float((d.n_rejected_nli / tot_raw).mean()),
-            "constraint_reject_rate": float((d.n_rejected_constraint / tot_raw).mean()),
-            "dedup_reject_rate": float((d.n_rejected_dedup / tot_raw).mean()),
-            "dropped_frac": float(d.dropped.mean()),
-            "fallback_nli_frac": float((d.nli_threshold_used < 0.9 - 1e-9).mean()),
-        })
+        tot_raw = d.n_accepted + d.n_rejected_nli + d.n_rejected_constraint + d.n_rejected_dedup
+        rows.append(
+            {
+                "arm": arm,
+                "universes": len(d),
+                "nli_reject_rate": float((d.n_rejected_nli / tot_raw).mean()),
+                "constraint_reject_rate": float((d.n_rejected_constraint / tot_raw).mean()),
+                "dedup_reject_rate": float((d.n_rejected_dedup / tot_raw).mean()),
+                "dropped_frac": float(d.dropped.mean()),
+                "fallback_nli_frac": float((d.nli_threshold_used < 0.9 - 1e-9).mean()),
+            }
+        )
     return pd.DataFrame(rows)
 
 
@@ -157,9 +165,15 @@ def censoring_table(config, arm_caches: dict[str, str]) -> pd.DataFrame:
 # --------------------------------------------------------------------------- #
 
 
-def load_arm_cells(config, model: str, arm: str, questions: set[str] | None,
-                   *, n_cap: dict[tuple[str, int], int] | None = None,
-                   seed: int = 42) -> pd.DataFrame:
+def load_arm_cells(
+    config,
+    model: str,
+    arm: str,
+    questions: set[str] | None,
+    *,
+    n_cap: dict[tuple[str, int], int] | None = None,
+    seed: int = 42,
+) -> pd.DataFrame:
     """Eval cells for one (model, arm).
 
     `n_cap`: the N-matched robustness mode — per-(question, level) cap on the
@@ -170,8 +184,11 @@ def load_arm_cells(config, model: str, arm: str, questions: set[str] | None,
     comparison confounds width with |U|. The primary analysis uses full
     universes; the N-matched pass equalises |U| per cell across arms.
     """
-    rel = (f"data/specificity_v3_{model}.parquet" if arm == "medium"
-           else f"data/width_{arm}_{model}.parquet")
+    rel = (
+        f"data/specificity_v3_{model}.parquet"
+        if arm == "medium"
+        else f"data/width_{arm}_{model}.parquet"
+    )
     path = config.repo_root() / rel
     if not path.exists():
         return pd.DataFrame()
@@ -192,6 +209,7 @@ def load_arm_cells(config, model: str, arm: str, questions: set[str] | None,
     d["n_universe"] = [len(c) if c else 0 for c in cells]
     d["sigma2_B"] = [sigma2_between(c, k) for c in cells]
     from ..metrics.sensitivity_v2 import rho_f as _mom
+
     d["rho_f_mom"] = [(_mom(c, k) if c and len(c) >= 2 else np.nan) for c in cells]
     if len(d) >= 20:
         fit = fit_hierarchical_rho_f(cells, k)
@@ -217,9 +235,14 @@ def n_cap_from_arms(config, model: str, questions: set[str] | None) -> dict:
 
 
 def paired_arm_test(cells: pd.DataFrame, value: str) -> dict:
-    """Per-model paired dial tests on one outcome column."""
-    piv = cells.pivot_table(index=["question_id", "spec_level"],
-                            columns="arm", values=value)
+    """Per-model paired dial tests on one outcome column.
+
+    Every row gets the SAME test battery (one policy for the whole table):
+    one-sided narrow<wide Wilcoxon, its two-sided version, Friedman, and a
+    bootstrap 95% CI on the wide-narrow delta so a flat response carries a
+    bound instead of a bare non-significant p.
+    """
+    piv = cells.pivot_table(index=["question_id", "spec_level"], columns="arm", values=value)
     have = [a for a in _ARMS if a in piv.columns]
     out: dict = {"n_paired": 0}
     if set(have) >= set(_ARMS):
@@ -228,12 +251,34 @@ def paired_arm_test(cells: pd.DataFrame, value: str) -> dict:
         if len(p) > 10:
             out["means"] = [float(p[a].mean()) for a in _ARMS]
             out["wilcoxon_nw_less_p"] = float(
-                stats.wilcoxon(p["narrow"], p["wide"], alternative="less").pvalue)
-            out["friedman_p"] = float(stats.friedmanchisquare(
-                p["narrow"], p["medium"], p["wide"]).pvalue)
+                stats.wilcoxon(p["narrow"], p["wide"], alternative="less").pvalue
+            )
+            out["wilcoxon_nw_twosided_p"] = float(stats.wilcoxon(p["narrow"], p["wide"]).pvalue)
+            out["friedman_p"] = float(
+                stats.friedmanchisquare(p["narrow"], p["medium"], p["wide"]).pvalue
+            )
             out["frac_monotone"] = float(
-                ((p["narrow"] <= p["medium"]) & (p["medium"] <= p["wide"])).mean())
+                ((p["narrow"] <= p["medium"]) & (p["medium"] <= p["wide"])).mean()
+            )
+            deltas = (p["wide"] - p["narrow"]).to_numpy()
+            rng = np.random.default_rng(0)
+            boots = np.array(
+                [deltas[rng.integers(0, len(deltas), len(deltas))].mean() for _ in range(2000)]
+            )
+            out["delta_nw"] = float(deltas.mean())
+            out["delta_ci_lo"] = float(np.percentile(boots, 2.5))
+            out["delta_ci_hi"] = float(np.percentile(boots, 97.5))
     return out
+
+
+def unpaired_arm_means(cells: pd.DataFrame, value: str) -> pd.DataFrame:
+    """Per-arm means on each arm's own covered cells (no paired selection).
+
+    The paired-covered subset is outcome-selected (MoM is undefined exactly at
+    the accuracy extremes), so the report shows both views side by side.
+    """
+    g = cells.groupby("arm")[value].agg(["mean", "count"])
+    return g.reindex(_ARMS)
 
 
 def swap_check(config, model: str, questions: set[str] | None) -> dict:
@@ -248,7 +293,8 @@ def swap_check(config, model: str, questions: set[str] | None) -> dict:
     r_s2, _ = stats.spearmanr(j.sigma2_B_med, j.sigma2_B_swap, nan_policy="omit")
     return {
         "n": len(j),
-        "rho_f_percell_spearman": float(r_rho), "p": float(p_rho),
+        "rho_f_percell_spearman": float(r_rho),
+        "p": float(p_rho),
         "sigma2B_percell_spearman": float(r_s2),
         "rho_f_mean_med": float(j.rho_f_hier_med.mean()),
         "rho_f_mean_swap": float(j.rho_f_hier_swap.mean()),
@@ -267,6 +313,7 @@ def main() -> int:
     config = load_config()
 
     from ..paraphrases.prompts import WIDTH_ARMS
+
     arm_caches = {a: WIDTH_ARMS[a]["cache"] for a in WIDTH_ARMS}
 
     # the dial's question set = whatever the narrow/wide caches contain
@@ -278,8 +325,10 @@ def main() -> int:
     questions = qset or None
 
     L = ["# R6 — generator-width dial (positive control for ρ_F)", ""]
-    L.append("Preregistered predictions P0–P5 are in the module docstring and the runbook; they were")
-    L.append("fixed before any arm data existed.")
+    L.append("Planned comparisons P0–P5 are in the module docstring and the runbook, written")
+    L.append("2026-08-07 before the arm data existed — self-attested: the repository history")
+    L.append("(batch-committed 2026-08-14) does not independently timestamp them, so the paper")
+    L.append('says "planned", not "preregistered".')
     L.append("")
 
     tab, ordered, note = manipulation_check(config, arm_caches, questions)
@@ -296,7 +345,9 @@ def main() -> int:
     cens = censoring_table(config, arm_caches)
     if not cens.empty:
         L.append("")
-        L.append("Gate censoring per arm (identical gates; differences are the gate reacting to G):")
+        L.append(
+            "Gate censoring per arm (identical gates; differences are the gate reacting to G):"
+        )
         L.append("")
         cols = [c for c in cens.columns]
         L.append("| " + " | ".join(cols) + " |")
@@ -305,8 +356,12 @@ def main() -> int:
             L.append("| " + " | ".join("" if pd.isna(r[c]) else str(r[c]) for c in cols) + " |")
     L.append("")
     if not ordered:
-        L.append("> ⚠ **P0 not (yet) satisfied — the outcome tests below are NOT interpretable as the")
-        L.append("> width dial.** Either arms are missing, or the gates censored the ordering away.")
+        L.append(
+            "> ⚠ **P0 not (yet) satisfied — the outcome tests below are NOT interpretable as the"
+        )
+        L.append(
+            "> width dial.** Either arms are missing, or the gates censored the ordering away."
+        )
         L.append("")
 
     all_cells = []
@@ -325,52 +380,98 @@ def main() -> int:
             continue
         all_cells.append(cells.assign(model=model))
         sizes = cells.groupby("arm")["n_universe"].agg(["mean", "median", "min"]).round(2)
-        L.append(f"universe sizes |U| per arm (unequal-N caveat): "
-                 + "; ".join(f"{a}: mean {r['mean']:.1f}, median {r['median']:.0f}"
-                             for a, r in sizes.iterrows()))
+        L.append(
+            "universe sizes |U| per arm (unequal-N caveat): "
+            + "; ".join(
+                f"{a}: mean {r['mean']:.1f}, median {r['median']:.0f}" for a, r in sizes.iterrows()
+            )
+        )
         L.append("")
         # ⚠ hier caveat (verified 2026-08-08): the per-arm empirical-Bayes fit is
         # weakly identified on the NARROW arm (median |U| = 7 with a majority of
         # fully-degenerate cells at near-deterministic decoding) and can invert
         # the ordering (qwen narrow printed .68 while MoM/full-N/N-matched all
         # show narrow LOWEST). Interpret P2 via the MoM row + N-matched rows.
-        for pred, col, direction in [("P1 σ²_B", "sigma2_B", "increases"),
-                                     ("P2 ρ_F (hier., ⚠ see caveat)", "rho_f_hier", "increases"),
-                                     ("P2b ρ_F (MoM, covered cells)", "rho_f_mom", "increases"),
-                                     ("P3 accuracy", "f_graded_mean", "little change"),
-                                     ("P4 H_sem", "h_sem_mean", "little change")]:
+        for pred, col, direction in [
+            ("P1 σ²_B", "sigma2_B", "increases"),
+            ("P2 ρ_F (hier., ⚠ see caveat)", "rho_f_hier", "increases"),
+            ("P2b ρ_F (MoM, covered cells)", "rho_f_mom", "increases"),
+            ("P3 accuracy", "f_graded_mean", "little change"),
+            ("P4 H_sem", "h_sem_mean", "little change"),
+        ]:
             t = paired_arm_test(cells, col)
             if t.get("n_paired", 0) > 10:
                 m = " → ".join(f"{x:.4f}" for x in t["means"])
-                L.append(f"- **{pred}** ({direction}): {m} | narrow<wide one-sided "
-                         f"p = {t['wilcoxon_nw_less_p']:.3g} | Friedman p = {t['friedman_p']:.3g} "
-                         f"| monotone cells {t['frac_monotone']:.0%} (n = {t['n_paired']})")
+                L.append(
+                    f"- **{pred}** ({direction}): {m} | narrow<wide one-sided "
+                    f"p = {t['wilcoxon_nw_less_p']:.3g}, two-sided p = "
+                    f"{t['wilcoxon_nw_twosided_p']:.3g} | Friedman p = {t['friedman_p']:.3g} "
+                    f"| Δ(wide−narrow) = {t['delta_nw']:+.4f} "
+                    f"[{t['delta_ci_lo']:+.4f}, {t['delta_ci_hi']:+.4f}] "
+                    f"| monotone cells {t['frac_monotone']:.0%} (n = {t['n_paired']})"
+                )
             else:
                 L.append(f"- **{pred}**: insufficient paired arms (n = {t.get('n_paired', 0)})")
+        # Unpaired per-arm means: the paired-covered subset above is
+        # outcome-selected (MoM undefined at accuracy extremes; coverage also
+        # differs ACROSS arms), so the report always shows both views.
+        for col, label in [("rho_f_mom", "ρ_F (MoM)"), ("sigma2_B", "σ²_B")]:
+            g = unpaired_arm_means(cells, col)
+            L.append(
+                f"- **{label} unpaired per-arm** (each arm's own covered cells): "
+                + " → ".join(f"{r['mean']:.4f} (n={int(r['count'])})" for _, r in g.iterrows())
+            )
         # N-matched robustness: equalise |U| per cell across arms by seeded
         # subsampling, so the dial effect cannot be an unequal-N artifact
         # (narrow's universes are systematically smaller — dedup collision).
+        # Five seeds, all three estimator columns — single-seed p-values on
+        # these subsamples wobble, so the report carries the range.
         caps = n_cap_from_arms(config, model, questions)
         if caps:
-            frames_m = []
-            for a in _ARMS:
-                c = load_arm_cells(config, model, a, questions, n_cap=caps)
-                if not c.empty:
-                    frames_m.append(c)
-            cells_m = pd.concat(frames_m, ignore_index=True) if frames_m else pd.DataFrame()
-            if not cells_m.empty and cells_m.arm.nunique() >= 3:
-                for pred, col in [("P1 σ²_B", "sigma2_B"), ("P2 ρ_F (hier.)", "rho_f_hier")]:
+            # N-matching applies to the VARIANCE components only: accuracy and
+            # H_sem enter as per-paraphrase means, which subsampling leaves
+            # unbiased, so their dial contrasts are read from the main battery.
+            per_seed: dict[str, list[dict]] = {
+                "sigma2_B": [],
+                "rho_f_hier": [],
+                "rho_f_mom": [],
+            }
+            for seed in range(5):
+                frames_m = []
+                for a in _ARMS:
+                    c = load_arm_cells(config, model, a, questions, n_cap=caps, seed=seed)
+                    if not c.empty:
+                        frames_m.append(c)
+                cells_m = pd.concat(frames_m, ignore_index=True) if frames_m else pd.DataFrame()
+                if cells_m.empty or cells_m.arm.nunique() < 3:
+                    continue
+                for col in per_seed:
                     t = paired_arm_test(cells_m, col)
                     if t.get("n_paired", 0) > 10:
-                        m = " → ".join(f"{x:.4f}" for x in t["means"])
-                        L.append(f"- **{pred} [N-matched]**: {m} | narrow<wide one-sided "
-                                 f"p = {t['wilcoxon_nw_less_p']:.3g} (n = {t['n_paired']})")
+                        per_seed[col].append(t)
+            for pred, col in [
+                ("P1 σ²_B", "sigma2_B"),
+                ("P2 ρ_F (hier.)", "rho_f_hier"),
+                ("P2b ρ_F (MoM, covered)", "rho_f_mom"),
+            ]:
+                ts = per_seed[col]
+                if not ts:
+                    continue
+                ps = sorted(t["wilcoxon_nw_less_p"] for t in ts)
+                m = " → ".join(f"{x:.4f}" for x in ts[0]["means"])
+                L.append(
+                    f"- **{pred} [N-matched, seeds 0–4]**: seed-0 means {m} | "
+                    f"narrow<wide one-sided p median {np.median(ps):.3g}, "
+                    f"range [{ps[0]:.3g}, {ps[-1]:.3g}] (n = {ts[0]['n_paired']})"
+                )
         sw = swap_check(config, model, questions)
         if sw:
-            L.append(f"- **P5 swap (OLMo medium)**: per-cell ρ_F Spearman = "
-                     f"{sw['rho_f_percell_spearman']:+.3f} (p = {sw['p']:.2g}, n = {sw['n']}); "
-                     f"means {sw['rho_f_mean_med']:.3f} (Phi-4) vs {sw['rho_f_mean_swap']:.3f} (OLMo); "
-                     f"σ²_B per-cell Spearman = {sw['sigma2B_percell_spearman']:+.3f}")
+            L.append(
+                f"- **P5 swap (OLMo medium)**: per-cell ρ_F Spearman = "
+                f"{sw['rho_f_percell_spearman']:+.3f} (p = {sw['p']:.2g}, n = {sw['n']}); "
+                f"means {sw['rho_f_mean_med']:.3f} (Phi-4) vs {sw['rho_f_mean_swap']:.3f} (OLMo); "
+                f"σ²_B per-cell Spearman = {sw['sigma2B_percell_spearman']:+.3f}"
+            )
         else:
             L.append("- **P5 swap**: swap arm not present yet")
         L.append("")
@@ -379,10 +480,20 @@ def main() -> int:
     out_md.write_text("\n".join(L), encoding="utf-8")
     if all_cells:
         keep = pd.concat(all_cells, ignore_index=True)
-        drop = [c for c in ("f_graded_per_paraphrase", "fi_in_curve_ks", "fi_in_curve_vals",
-                            "fi_in_ci_lower", "fi_in_ci_upper") if c in keep.columns]
+        drop = [
+            c
+            for c in (
+                "f_graded_per_paraphrase",
+                "fi_in_curve_ks",
+                "fi_in_curve_vals",
+                "fi_in_ci_lower",
+                "fi_in_ci_upper",
+            )
+            if c in keep.columns
+        ]
         keep.drop(columns=drop).to_parquet(
-            config.repo_root() / "data/width_dial_cells.parquet", index=False)
+            config.repo_root() / "data/width_dial_cells.parquet", index=False
+        )
     try:
         print("\n".join(L))
     except UnicodeEncodeError:
