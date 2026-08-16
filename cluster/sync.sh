@@ -6,8 +6,8 @@
 #
 # Host defaults to uc3.scc.kit.edu; override with BWUC_HOST.
 # Custom SSH key: set BWUC_SSH_KEY to the private-key path (e.g. a key NOT in
-# ~/.ssh). In Git Bash a Windows path like C:\Users\thano\ssh_key_thanoskit is
-# written /c/Users/thano/ssh_key_thanoskit.
+# ~/.ssh). In Git Bash a Windows path like <path-to-ssh-key> is
+# written <path-to-ssh-key>.
 # The remote repo lives at $HOME/PromptSensitivityFI on the cluster.
 #
 # Transport: uses rsync if available (incremental + --delete). Git Bash on

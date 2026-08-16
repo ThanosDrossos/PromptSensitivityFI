@@ -3,8 +3,8 @@
 # is not installed (e.g. plain Git Bash on Windows). Every subcommand mirrors
 # the corresponding `make cluster-*` target.
 #
-#   export BWUC_USER=ka_jc8392
-#   export BWUC_SSH_KEY=/c/Users/thano/ssh_key_thanoskit   # if key not in ~/.ssh
+#   export BWUC_USER=<bwuc-username>
+#   export BWUC_SSH_KEY=<path-to-ssh-key>   # if key not in ~/.ssh
 #   bash cluster/run.sh check     # ssh in, print hostname + tooling (no job)
 #   bash cluster/run.sh push      # rsync repo to the cluster
 #   bash cluster/run.sh submit    # sbatch the smoke job, print job id
@@ -20,7 +20,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BWUC_HOST="${BWUC_HOST:-uc3.scc.kit.edu}"
 
 if [[ -z "${BWUC_USER:-}" ]]; then
-  echo "ERROR: set BWUC_USER (e.g. export BWUC_USER=ka_jc8392)" >&2
+  echo "ERROR: set BWUC_USER (e.g. export BWUC_USER=<bwuc-username>)" >&2
   exit 2
 fi
 REMOTE="$BWUC_USER@$BWUC_HOST"

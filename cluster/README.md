@@ -91,19 +91,19 @@ the rsync excludes — it is never pushed from local nor committed.
 
 | Var | Required | Default | Meaning |
 |---|---|---|---|
-| `BWUC_USER` | yes | — | your cluster login, e.g. `ka_jc8392` |
+| `BWUC_USER` | yes | — | your cluster login, e.g. `<bwuc-username>` |
 | `BWUC_HOST` | no | `uc3.scc.kit.edu` | login host |
 | `BWUC_SSH_KEY` | no | (default `~/.ssh`) | private-key path if the key is NOT in `~/.ssh` |
 
 Set them inline per command, or `export` them once for the session.
 
-**This project's values** (login `ka_jc8392`, key at `C:\Users\thano\ssh_key_thanoskit`).
+**This project's values** (login `<bwuc-username>`, key at `<path-to-ssh-key>`).
 Run from **Git Bash** (rsync/ssh are not in PowerShell). In Git Bash a Windows
-path `C:\Users\thano\ssh_key_thanoskit` is written `/c/Users/thano/ssh_key_thanoskit`:
+path `<path-to-ssh-key>` is written `<path-to-ssh-key>`:
 
 ```bash
-export BWUC_USER=ka_jc8392
-export BWUC_SSH_KEY=/c/Users/thano/ssh_key_thanoskit
+export BWUC_USER=<bwuc-username>
+export BWUC_SSH_KEY=<path-to-ssh-key>
 ```
 
 ### Windows: lock down the key permissions once
@@ -112,8 +112,8 @@ OpenSSH refuses a private key that is group/world-readable
 ("UNPROTECTED PRIVATE KEY FILE"). Fix it once in **PowerShell**:
 
 ```powershell
-icacls C:\Users\thano\ssh_key_thanoskit /inheritance:r
-icacls C:\Users\thano\ssh_key_thanoskit /grant:r "$($env:USERNAME):(R)"
+icacls <path-to-ssh-key> /inheritance:r
+icacls <path-to-ssh-key> /grant:r "$($env:USERNAME):(R)"
 ```
 
 ---
@@ -137,7 +137,7 @@ This is the smallest possible "is my setup wired up" check — no sync, no job:
 make cluster-check
 ```
 
-Expected: `CONNECTED as ka_jc8392 on uc3nXXXX`, paths to `sbatch`/`squeue`,
+Expected: `CONNECTED as <bwuc-username> on uc3nXXXX`, paths to `sbatch`/`squeue`,
 and `repo NOT pushed yet` (until you run `cluster-push`). The first connection
 this session prompts for OTP + service password to unlock the key.
 
@@ -156,7 +156,7 @@ make cluster-pull
 
 (With `BWUC_USER` / `BWUC_SSH_KEY` exported as in §3, you don't repeat them
 each time. Otherwise prefix each command, e.g.
-`BWUC_USER=ka_jc8392 BWUC_SSH_KEY=/c/Users/thano/ssh_key_thanoskit make cluster-check`.)
+`BWUC_USER=<bwuc-username> BWUC_SSH_KEY=<path-to-ssh-key> make cluster-check`.)
 
 `make cluster-smoke` = `cluster-push` + `cluster-submit`. Individual targets:
 
