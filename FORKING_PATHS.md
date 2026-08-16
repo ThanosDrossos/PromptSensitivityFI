@@ -8,7 +8,7 @@ decision-robust and which are decision-dependent. Source of adjusted statistics:
 | # | fork | option taken | option not taken | what changes |
 |---|---|---|---|---|
 | 1 | gold set | **union of all valid interpretations (primary since R1)** | pinned target interpretation | Δ accuracy for the specificity dial: +.06/+.13/+.12 vs +.22/+.24/+.25. The excess (47–72 %) is a grading lottery, not ability. Target-gold is retained only as the protocol comparison. |
-| 2 | ρ_F estimator | **hierarchical beta-binomial EB (primary since R2)** | ANOVA method-of-moments | coverage 45–66 % → 100 %; MoM is undefined exactly on outcome extremes (all-right/all-wrong cells), making missingness outcome-dependent. Point estimates agree where both exist; all headline orderings hold under both. |
+| 2 | ρ_F estimator | **hierarchical beta-binomial EB (primary since R2)** | ANOVA method-of-moments | coverage (45–66 % target gold, 60–83 % union) → 100 %; MoM is undefined exactly on outcome extremes (all-right/all-wrong cells), making missingness outcome-dependent. Point estimates agree where both exist (Spearman .85–.95). The model ordering and the specificity null hold under both; the **width-arm** significance pattern does **not** — see fork 13. |
 | 3 | degenerate cells in correlations | **complete-case + mechanical-coupling null** | impute ρ_F = 0 for degenerate cells | imputation manufactures ρ_F–accuracy correlations of +.26/+.48/+.41 (degenerate cells are mostly all-wrong). Retired 2026-08-06. |
 | 4 | axis-1 headline | **graded accuracy F̄** | AUFI "bits" | AUFI ≡ accuracy (ρ = −.9997); the bits framing added a cap-dependent scale, no information. AUFI demoted to appendix presentation. |
 | 5 | dispersion representative | **H_sem alone, with reduction proofs** | report S_τ, TVD-consistency, \|A_q\|, variation ratio, Var[FI_out] as convergent evidence | the "family" is one object (identities to 4.4e-16); counting it 5× inflated apparent convergence. FI_out_fixed = log₂m₀ − H_sem is a unit conversion — testing both double-counts one test. |
@@ -19,12 +19,18 @@ decision-robust and which are decision-dependent. Source of adjusted statistics:
 | 10 | reformulation gain | **not reported as a finding** | "rephrasing recovers .98 of headroom" | the gain statistic is F_max − F̄, whose expectation rises mechanically with k (max of k draws); without a per-k null it is uninterpretable. Superseded by the out-of-sample payoff prediction (ρ_F(k=10) → payoff on disjoint k=20: +.61/+.39/+.70). |
 | 11 | multiplicity | **declared 12-test family, Holm + BH (R8)** | per-test unadjusted p | qwen's primary Δ_union survives BH (.045) but not Holm (.15); wording is fixed at "BH-significant 3/3, Holm-robust 2/3". |
 | 12 | model count as evidence | **models = correlated measurements; pooled per-question test** | "replicated in 3 models" | per-question deltas correlate ρ = .52–.64 across models — three models are ~1.2–1.5 effective replications, not 3. The pooled single-experiment tests: Δ_union p = 3.3e-05, ΔH_sem p = 6.1e-05. |
+| 13 | width-arm ρ_F estimator | **MoM on covered cells + N-matched hierarchical (since 2026-08-16)** | the planned per-arm hierarchical fit (P2) | the substitution changes which model supports the prediction: MoM covered gives qwen p = .0035 (n = 22), llama .079, mistral .051; the raw per-arm hierarchical fit gives qwen p = 1 (inverted) — a narrow-arm identifiability failure, substantiated by simulation in `data/rho_f_recovery_sim.md` §3; N-matched hierarchical gives qwen p = 2.8e-08 but llama p = .99. The width conclusion is therefore stated per-estimator, with n, never as decision-robust. |
 
 Decision-robust across all forks: the model ordering of ρ_F (qwen > mistral >
 llama, share and σ²_B, both golds, both estimators, both paraphrase generators);
-the flatness of ρ_F under the specificity dial; the direction of the union-gold
-accuracy gain; the width-dial double dissociation.
+the flatness of ρ_F under the specificity dial (as a point estimate — its
+*evidential strength* is bounded by the estimator's attenuation, see
+`data/rho_f_recovery_sim.md`); the direction of the union-gold accuracy gain;
+the direction (narrow < wide, 3/3 models) of the width response of σ²_B and
+MoM ρ_F.
 
 Decision-dependent (and flagged in text): the *size* of the specificity effect
 (fork 1), the significance pattern of H_sem's level response (forks 6, 11 —
-Holm-robust in llama only), and any per-question use of ρ_F (fork 7).
+Holm-robust in llama only), any per-question use of ρ_F (fork 7), and the
+per-model significance pattern of the width dial (fork 13 — qwen only under
+MoM, and not under the N-matched hierarchical fit for llama).
