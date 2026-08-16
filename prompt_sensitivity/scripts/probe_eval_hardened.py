@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import json
 import sys
 
 import numpy as np
@@ -428,6 +429,17 @@ def eval_ood(config, model_key) -> dict:
     out["auroc_head"] = float(roc_auc_score(y, scores))
     out["prauc_head"] = float(average_precision_score(y, scores))
     out["prevalence"] = float(y.mean())
+    # question-level bootstrap CI on the head AUROC (one prompt per question,
+    # so row resampling is the clustered bootstrap here)
+    rng = np.random.default_rng(42)
+    boots = []
+    for _ in range(2000):
+        idx = rng.integers(0, len(y), len(y))
+        if y[idx].min() == y[idx].max():
+            continue
+        boots.append(roc_auc_score(y[idx], scores[idx]))
+    out["auroc_head_ci_lo"] = float(np.percentile(boots, 2.5))
+    out["auroc_head_ci_hi"] = float(np.percentile(boots, 97.5))
     # confusion at the shipped threshold — the operating point users actually get
     pred = (scores >= _SHIPPED_THRESHOLD).astype(int)
     tp = int(((pred == 1) & (y == 1)).sum())
@@ -563,7 +575,11 @@ def main() -> int:
     md = render(pd.concat(frames), ood)
     out = config.repo_root() / "data/probe_eval_hardened.md"
     out.write_text(md, encoding="utf-8")
-    logger.info("wrote {}", out)
+    # machine-readable OOD block, read by make_paper_figures (no hand-copied
+    # literals between artifact and figure)
+    out_json = config.repo_root() / "data/probe_eval_ood.json"
+    out_json.write_text(json.dumps(ood, indent=1), encoding="utf-8")
+    logger.info("wrote {} and {}", out, out_json)
     return 0
 
 
