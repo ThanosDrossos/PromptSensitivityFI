@@ -103,28 +103,73 @@ def posix_discrimination(config) -> pd.DataFrame:
         r_hr = stats.spearmanr(s.h_sem_mean, s.rho_f)[0]
         t, p = williams_test(r_h, r_r, r_hr, n)
         ci_h, ci_r = _fisher_ci(r_h, n), _fisher_ci(r_r, n)
-        rows.append({
-            "model": m, "n": n,
-            "posix_vs_h_sem": r_h, "h_ci_lo": ci_h[0], "h_ci_hi": ci_h[1],
-            "posix_vs_rho_f": r_r, "r_ci_lo": ci_r[0], "r_ci_hi": ci_r[1],
-            "williams_t": t, "williams_p": p,
-        })
+        rows.append(
+            {
+                "model": m,
+                "n": n,
+                "posix_vs_h_sem": r_h,
+                "h_ci_lo": ci_h[0],
+                "h_ci_hi": ci_h[1],
+                "posix_vs_rho_f": r_r,
+                "r_ci_lo": ci_r[0],
+                "r_ci_hi": ci_r[1],
+                "williams_t": t,
+                "williams_p": p,
+            }
+        )
     return pd.DataFrame(rows)
 
 
-def render(idents: dict[str, dict], posix: pd.DataFrame) -> str:
+_DISPERSION_INDICES = [
+    ("H_sem", "h_sem_mean"),
+    ("S_tau", "s_tau_mean"),
+    ("variation ratio", "variation_ratio"),
+    ("1-TVD consistency", "consistency_mean"),
+    ("\\|A_q\\|", "a_q"),
+]
+
+
+def divergence_table(config) -> pd.DataFrame:
+    """Paired L0->L1 test per dispersion index: one distribution, many answers.
+
+    Being functionals of one pooled clustering does NOT make the indices one
+    measurement — on the primary specificity test they reach different
+    decisions (a per-cell-varying normaliser is not a monotone transform
+    across cells). This table is the paper's evidence for reporting exactly
+    one representative instead of counting the family as convergent evidence.
+    """
+    rows = []
+    for m in _MODELS:
+        df = pd.read_parquet(config.repo_root() / f"data/specificity_v3_{m}.parquet")
+        row: dict = {"model": m}
+        for label, col in _DISPERSION_INDICES:
+            wide = df.pivot_table(index="question_id", columns="spec_level", values=col).dropna()
+            delta = wide[1] - wide[0]
+            p = stats.wilcoxon(delta).pvalue if (delta != 0).any() else 1.0
+            row[label] = (float(delta.mean()), float(p), len(wide))
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def render(idents: dict[str, dict], posix: pd.DataFrame, div: pd.DataFrame) -> str:
     L = ["# R4 — Metric reductions: the dispersion family is one object", ""]
-    L.append("**Proposition.** Let P be a cell's pooled semantic-cluster distribution and |A| its support")
+    L.append(
+        "**Proposition.** Let P be a cell's pooled semantic-cluster distribution and |A| its support"
+    )
     L.append("size, as produced by the pipeline's pooled clustering. Then, exactly as computed:")
     L.append("")
     L.append("| index | reduction | verified max abs error (all cells, 3 models) |")
     L.append("|---|---|---|")
-    worst = {k: max(v[k] for v in idents.values())
-             for k in ("s_tau_max_abs_err", "fi_out_fixed_max_abs_err", "fi_out_var_max_abs_err")}
+    worst = {
+        k: max(v[k] for v in idents.values())
+        for k in ("s_tau_max_abs_err", "fi_out_fixed_max_abs_err", "fi_out_var_max_abs_err")
+    }
     L.append(f"| S_τ (Errica) | H(P) / log₂\\|A\\| | {worst['s_tau_max_abs_err']:.2e} |")
     L.append(f"| FI_out_fixed | log₂(m₀) − H(P) | {worst['fi_out_fixed_max_abs_err']:.2e} |")
     L.append(f"| Var[FI_out] | Var[H_sem] | {worst['fi_out_var_max_abs_err']:.2e} |")
-    L.append("| \\|A_q\\|, variation ratio, 1−TVD | functionals of P (same pooled clustering) | by construction |")
+    L.append(
+        "| \\|A_q\\|, variation ratio, 1−TVD | functionals of P (same pooled clustering) | by construction |"
+    )
     L.append("")
     L.append("**Consequences.**")
     L.append("1. Within-dataset correlations among these indices are *arithmetic*, not evidence of")
@@ -132,13 +177,36 @@ def render(idents: dict[str, dict], posix: pd.DataFrame) -> str:
     L.append("2. The paired L0→L1 test on FI_out_fixed **is** the H_sem test (an affine map with a")
     L.append("   per-question constant cannot change a paired test). Report exactly one of them.")
     n_deg = np.mean([v["s_tau_degenerate_frac"] for v in idents.values()])
-    L.append(f"3. **Degeneracy rule (stated, not silent):** S_τ is undefined when \\|A\\| ≤ 1 — "
-             f"{n_deg:.1%} of cells across the three models (the pipeline emitted 0 there). "
-             "All S_τ analyses condition on \\|A\\| ≥ 2 and report that coverage.")
+    L.append(
+        f"3. **Degeneracy rule (stated, not silent):** S_τ is undefined when \\|A\\| ≤ 1 — "
+        f"{n_deg:.1%} of cells across the three models (the pipeline emitted 0 there). "
+        "All S_τ analyses condition on \\|A\\| ≥ 2 and report that coverage."
+    )
     L.append("")
-    L.append("## POSIX — the one independent measurement — does not discriminate axis 3 from axis 2")
+    L.append("## One distribution, many answers — the paired L0→L1 test per index")
     L.append("")
-    L.append("Same (ρ_F-covered) subset for both correlations; Williams/Steiger test of the difference:")
+    L.append('"Functionals of one clustering" is NOT "one measurement": on the primary')
+    L.append("specificity test the indices reach different decisions, because dividing by a")
+    L.append("per-cell-varying normaliser is not a monotone transform across cells. This is")
+    L.append("why the paper reports exactly ONE dispersion representative (H_sem) and treats")
+    L.append("agreement within the family as arithmetic, never as convergent evidence.")
+    L.append("")
+    L.append("| model | " + " | ".join(lbl for lbl, _ in _DISPERSION_INDICES) + " |")
+    L.append("|---|" + "---|" * len(_DISPERSION_INDICES))
+    for _, r in div.iterrows():
+        cells = []
+        for lbl, _ in _DISPERSION_INDICES:
+            d, p, n = r[lbl]
+            cells.append(f"{d:+.3f} (p={p:.2g}, n={n})")
+        L.append(f"| {r['model']} | " + " | ".join(cells) + " |")
+    L.append("")
+    L.append(
+        "## POSIX — the one independent measurement — does not discriminate axis 3 from axis 2"
+    )
+    L.append("")
+    L.append(
+        "Same (ρ_F-covered) subset for both correlations; Williams/Steiger test of the difference:"
+    )
     L.append("")
     L.append("| model | n | POSIX~H_sem [95 % CI] | POSIX~ρ_F [95 % CI] | Williams t | p |")
     L.append("|---|---|---|---|---|---|")
@@ -147,21 +215,29 @@ def render(idents: dict[str, dict], posix: pd.DataFrame) -> str:
             f"| {r['model']} | {int(r['n'])} | "
             f"{r['posix_vs_h_sem']:+.3f} [{r['h_ci_lo']:+.3f}, {r['h_ci_hi']:+.3f}] | "
             f"{r['posix_vs_rho_f']:+.3f} [{r['r_ci_lo']:+.3f}, {r['r_ci_hi']:+.3f}] | "
-            f"{r['williams_t']:.2f} | {r['williams_p']:.3f} |")
+            f"{r['williams_t']:.2f} | {r['williams_p']:.3f} |"
+        )
     L.append("")
-    L.append("POSIX correlates with **both** axes; in no model is its dispersion loading significantly")
-    L.append("larger than its ρ_F loading. The claim \"the phrasing axis stays empty\" is **withdrawn**;")
+    L.append(
+        "POSIX correlates with **both** axes; in no model is its dispersion loading significantly"
+    )
+    L.append(
+        'larger than its ρ_F loading. The claim "the phrasing axis stays empty" is **withdrawn**;'
+    )
     L.append("the honest statement is that POSIX is not axis-diagnostic at this sample size.")
     L.append("")
     L.append("## Per-model identity checks")
     L.append("")
-    L.append("| model | S_τ err (n, cond. \\|A\\|≥2) | S_τ degenerate (of which =0) | FI_out_fixed err | Var[FI_out] err |")
+    L.append(
+        "| model | S_τ err (n, cond. \\|A\\|≥2) | S_τ degenerate (of which =0) | FI_out_fixed err | Var[FI_out] err |"
+    )
     L.append("|---|---|---|---|---|")
     for m, v in idents.items():
         L.append(
             f"| {m} | {v['s_tau_max_abs_err']:.1e} (n={v['s_tau_n_checked']}) | "
             f"{v['s_tau_degenerate_frac']:.1%} ({v['s_tau_degenerate_zero_frac']:.0%}) | "
-            f"{v['fi_out_fixed_max_abs_err']:.1e} | {v['fi_out_var_max_abs_err']:.1e} |")
+            f"{v['fi_out_fixed_max_abs_err']:.1e} | {v['fi_out_var_max_abs_err']:.1e} |"
+        )
     L.append("")
     return "\n".join(L)
 
@@ -174,7 +250,8 @@ def main() -> int:
         idents[m] = verify_identities(df)
         logger.info("{}: identities verified over {} rows", m, len(df))
     posix = posix_discrimination(config)
-    md = render(idents, posix)
+    div = divergence_table(config)
+    md = render(idents, posix, div)
     out = config.repo_root() / "data/metric_reductions.md"
     out.write_text(md, encoding="utf-8")
     print(md)
