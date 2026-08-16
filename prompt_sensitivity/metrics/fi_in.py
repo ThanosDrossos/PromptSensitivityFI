@@ -26,6 +26,10 @@ from collections.abc import Iterable, Sequence
 
 import numpy as np
 
+_EPS = 1e-9  # F values are means of k binaries; guard threshold comparisons
+# against linspace artifacts (0.30000000000000004 must not fail F = 0.3).
+# Same convention as sensitivity_v2._EPS and axis1_graded_curve.
+
 
 def fi_in(scores: Sequence[float], k: float) -> float:
     """Hazen-Szostak functional information at threshold k.
@@ -38,7 +42,7 @@ def fi_in(scores: Sequence[float], k: float) -> float:
     n = len(scores)
     if n == 0:
         raise ValueError("scores must be non-empty")
-    n_pass = sum(1 for s in scores if s >= k)
+    n_pass = sum(1 for s in scores if s >= k - _EPS)
     if n_pass == 0:
         return math.inf
     return -math.log2(n_pass / n)
@@ -95,7 +99,7 @@ def fi_in_bootstrap(
         resample_idx = rng.integers(0, n, size=n)
         resample = scores_arr[resample_idx]
         for j, k in enumerate(ks):
-            n_pass = int((resample >= k).sum())
+            n_pass = int((resample >= k - _EPS).sum())
             samples[b, j] = math.inf if n_pass == 0 else -math.log2(n_pass / n)
 
     # Clamp infinities for the percentile computation, matching aufi_in's convention.

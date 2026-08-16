@@ -15,7 +15,6 @@ from prompt_sensitivity.metrics.fi_in import (
     fi_in_curve,
 )
 
-
 # --- brief edge cases -----------------------------------------------------
 
 
@@ -73,3 +72,20 @@ def test_aufi_in_from_scores_helper_matches_step_by_step():
 def test_empty_scores_raises():
     with pytest.raises(ValueError):
         fi_in([], k=0.5)
+
+
+def test_fi_in_grid_epsilon_exact_tenths_pass_linspace_thresholds():
+    """Regression: F = 0.3 must pass the linspace threshold 0.30000000000000004.
+
+    Graded F values are exact multiples of 1/10; np.linspace(0, 1, 21) contains
+    0.30000000000000004, 0.6000000000000001 and 0.7000000000000001. Without the
+    epsilon guard a paraphrase attaining a threshold exactly failed it at those
+    grid points (fi_in was the only module comparing bare `>=`).
+    """
+    ks = np.linspace(0.0, 1.0, 21).tolist()
+    for frac in (0.3, 0.6, 0.7):
+        k = next(x for x in ks if abs(x - frac) < 1e-6)
+        assert k != frac  # the grid value really is off by float error
+        assert fi_in([frac], k) == 0.0  # the single paraphrase attains k
+    band = fi_in_bootstrap([0.3, 0.3], ks=[0.30000000000000004], n_iterations=10, seed=0)
+    assert band[0.30000000000000004] == (0.0, 0.0)
