@@ -37,13 +37,14 @@ remaining work is analysis fixes and the paper.
    of truth (four-tier verification). `references.bib` in the paper repo keeps
    per-entry verification comments — preserve them when editing.
 
-Known stale docs: root `README.md` still carries two retracted claims
-(orthogonality; the +0.22–0.25 target-gold headline as primary) —
-`EXPLAINER_Three_Dimensions.md` and `FORKING_PATHS.md` are the corrected frame.
-`CODEBASE_WALKTHROUGH.md` mechanics are right, framing predates the axes pivot.
-`data/final_run_results.md` holdout AUROCs (.667/.655/.670, decontaminated)
-disagree with `data/probe_eval_hardened.md` (.678/.670/.678, contaminated —
-includes the 150 training questions; see review §2.3).
+2026-08-16 evening: the review's fix list is **implemented** on branch
+`fix/review-2026-08-16` in both repos (code: new analyses R-series++, probe
+decontamination, committed parquets; paper: rewritten to ~10.7 content pages
+with every claim artifact-backed). `README.md` is rewritten to the corrected
+frame; `data/probe_eval_hardened.md` and `data/final_run_results.md` now
+agree (.667/.655/.670, n = 1,852, macOS reproduction).
+`CODEBASE_WALKTHROUGH.md` mechanics are right, framing predates the axes
+pivot. Neither branch is merged or pushed — that is Thanos's call.
 
 ## Practical notes
 

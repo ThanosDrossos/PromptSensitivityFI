@@ -1,5 +1,27 @@
 # Consolidated review & action plan — 2026-08-16
 
+> **IMPLEMENTATION STATUS (2026-08-16 evening, branch `fix/review-2026-08-16`
+> in both repos):** everything below is **implemented** except the Horn-dedup
+> print (M10, skipped per Thanos) — blockers §2.1–§2.5, major items M1–M16
+> (M10 partial: assignment-not-count wording adopted, Q2 number not printed),
+> new findings §4.2–§4.6b, decisions D2 (parquets committed) and D3
+> (`papers/` gitignored). New committed analyses: `rho_f_recovery_sim`,
+> `rho_f_construct_validity`, `evidence_coverage_audit`, extended
+> `width_dial_analysis` / `stats_hygiene` / `metric_reductions` /
+> `probe_eval_hardened` (decontaminated OOD, `probe_eval_ood.json`), figure
+> pipeline reads artifacts only. Paper rewritten: all claims artifact-backed,
+> content compressed 22 → **~10.7 pages** (22 total incl. statements,
+> references, appendix; 0 unresolved refs; suite 382/0). Two notable
+> substantive outcomes of the new analyses: **spread predicts rephrasing
+> payoff at least as well as ρ_F** (the paper now frames ρ_F as measurement,
+> not payoff forecasting), and the **fragility-head null now holds in all
+> three models** on the macOS reproduction. Residual items for Thanos:
+> the last ~0.7 page to strict ≤10 (options: cut the Terms ¶, move Fig. 1 to
+> the appendix, or confirm KIT's counting excludes the title block); the
+> "Submitted: 12 August 2026" date on the title page (stale for a revised
+> hand-in); merging + pushing the two branches; D1's ICLR variant
+> (anonymization) if ever submitted.
+
 **Scope.** The paper (`SensitivityFunctionalInformationPaper` @ `4303886`, the
 30-page 2026-08-12 build) against ICLR 2027 standards, consolidating
 `REVIEW_2026-08-14_Paper_ICLR.md` (all of whose findings are still open — the
