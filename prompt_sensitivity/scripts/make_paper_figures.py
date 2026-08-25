@@ -3,8 +3,9 @@
 Every number is READ from a committed artifact at run time — there are no
 hand-copied literals, so a regenerated artifact regenerates the figures:
 
-  data/stats_hygiene.json        -- the declared primary family (Fig. 1a)
-  data/width_dial_cells.parquet  -- the generator-width arms (Fig. 1b)
+  data/union_gold_*.parquet + data/specificity_v3_*.parquet
+    + data/rho_f_hier_union_*.parquet -- per-model level means (Fig. 1a-c)
+  data/width_dial_cells.parquet  -- the generator-width arms (Fig. 1d)
   figures/v3_metric_corr.npy     -- 14-metric within-stratum Spearman (Fig. 2)
   data/probe_eval_hardened_*.parquet + data/probe_eval_ood.json (Fig. 3)
 
@@ -79,7 +80,7 @@ def load_levels() -> dict[str, dict[str, dict[int, tuple[float, float, float]]]]
 
 
 def load_width(*, n_boot: int = 2000, seed: int = 0) -> dict[str, dict]:
-    """Fig. 1b inputs: paired-covered MoM rho_F per arm, bootstrap CI, and n.
+    """Fig. 1d inputs: paired-covered MoM rho_F per arm, bootstrap CI, and n.
 
     The paired-covered set (MoM defined in ALL three arms) is outcome-selected
     and small — the n goes into the panel so the figure cannot imply n = 100.
