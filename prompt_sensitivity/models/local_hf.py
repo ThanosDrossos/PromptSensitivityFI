@@ -369,7 +369,7 @@ class LocalHFClient(BaseLLMClient):
         norms = np.linalg.norm(pooled, axis=-1, keepdims=True)
         return (pooled / np.clip(norms, 1e-12, None)).astype(np.float32)
 
-    # ---- TBG hidden states for FI probes (FI_PROBES_PLAN.md §2) --------------
+    # ---- TBG hidden states for FI probes (the FI-probes design note §2) --------------
 
     def chat_hidden_states(
         self,

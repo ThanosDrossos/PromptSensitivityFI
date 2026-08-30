@@ -1,4 +1,4 @@
-"""Sensitivity metrics v2 (METRIC_PROPOSALS.md M1+M2) — beyond AUFI.
+"""Sensitivity metrics v2 (the v2 metric proposals M1+M2) — beyond AUFI.
 
 Motivation: AUFI_in is a monotone transform of accuracy (Spearman −1.000 exact
 under binary F, −0.999 graded; v3 audit 2026-07-24). These two scalars measure

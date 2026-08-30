@@ -1,4 +1,4 @@
-"""L_mid builder for the multi-level specificity ladder (FINAL_PHASE_PLAN C1).
+"""L_mid builder for the multi-level specificity ladder (the final-phase plan C1).
 
 Upgrades the FI_spec dial from a 2-point contrast to a within-question
 dose-response: for questions with m0 in {3..5}, construct a PARTIALLY

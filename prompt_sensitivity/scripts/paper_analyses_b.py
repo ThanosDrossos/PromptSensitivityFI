@@ -1,4 +1,4 @@
-"""Part-B paper analyses (FINAL_PHASE_PLAN, user-approved 2026-08-02).
+"""Part-B paper analyses (the final-phase plan, user-approved 2026-08-02).
 
 Laptop-only, no cluster. Four sections, one summary file:
 

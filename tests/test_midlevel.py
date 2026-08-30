@@ -1,4 +1,4 @@
-"""Multi-level ladder (FINAL_PHASE_PLAN C1): subset chooser, gate, builder."""
+"""Multi-level ladder (the final-phase plan C1): subset chooser, gate, builder."""
 
 from __future__ import annotations
 

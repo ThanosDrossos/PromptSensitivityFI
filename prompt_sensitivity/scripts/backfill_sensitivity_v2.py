@@ -1,4 +1,4 @@
-"""Backfill rho_f + fi_premium (METRIC_PROPOSALS M1+M2) into existing metrics
+"""Backfill rho_f + fi_premium (the v2 metric proposals M1+M2) into existing metrics
 parquets — both derive from the persisted `f_graded_per_paraphrase`, so historic
 runs (v3) get the new metric set WITHOUT any cluster re-run.
 

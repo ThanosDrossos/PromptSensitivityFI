@@ -1,8 +1,14 @@
-# The AmbigQA pipeline, end to end — and the proposed final-run changes
+# The AmbigQA pipeline, end to end
 
-**Audience:** someone who does not know this project. **Date:** 2026-08-02.
-Every number and example below comes from the committed data of the completed
-"v3" run (149 questions × 2 levels × 3 models) or from this repo's code.
+**Audience:** someone who does not know this project. **Written** 2026-08-02
+against the v3 run (149 questions), **revised** 2026-08-27. The mechanics are
+current; the final run analysed in the paper is 150 questions × 2 levels ×
+3 models (900 cells, 89,730 scored responses). For the results themselves see
+`data/stats_hygiene.md`, and for the current frame and vocabulary
+`CLAUDE.md` — note that this document still calls the specificity
+manipulation "the dial", a term the paper has retired in favour of *the
+specificity intervention* (the content variable) alongside *the width
+intervention* (the form variable).
 
 ---
 
@@ -210,102 +216,10 @@ is the main gap the final run addresses.
 
 ---
 
-## 8. Proposed changes (the final run) — status per item
-
-### 8.1 C1 — a middle rung for the dial *(design decision pending)*
-
-Today the dial has two points per question (0 and log₂ m₀). The proposal adds
-a **partially disambiguated** L_mid for questions with m₀ ≥ 3 (613 exist), so
-FI_spec takes a value strictly between — a *within-question dose-response*.
-Three candidate mechanisms, differing in what gets constructed:
-
-| option | L_mid text comes from | admitted-set label quality | caveat |
-|---|---|---|---|
-| **(1) across-question dose** — no L_mid at all | — (uses existing v3 data: L1's FI_spec already spans 1.0–3.32 bits across questions) | annotated | dose varies *between* questions (m₀ may correlate with difficulty; checkable) |
-| **(2) mechanical disjunction** | template over **annotator** Q_i texts ("…in 2001, or in 2003?") | exact **by construction** | register: explicitly enumerated ambiguity ≠ vague wording |
-| **(3) LLM rewrite** *(built, incl. judge gates + human-review file)* | Phi-4, gated | LLM-judged + human eyeball — **categorically weaker than annotation** | reviewer surface: a machine-written question text on the x-axis |
-
-**DECIDED (2026-08-02): no constructed mid-level at all.** Option (3) brings
-LLM-judge label risk, option (2) measures a different phenomenon (explicit
-enumeration, not vague wording) — both rejected; the code stays shelved in
-the repo, unlaunched. The dose-response question is answered by option (1),
-a pure analysis of existing data. Additionally, **target-answer collisions
-are now collected** (`target_collision` column: driver-emitted for future
-runs, backfilled into all existing parquets — 7.1% of the AmbigQA pool, 10%
-of the v3 sample) so collision cells can be split out or reweighted later.
-
-### 8.2 C6 — evidence dial *(approved, built)*
-
-Rerun 50 questions at evidence fractions 0.0 and 0.5 (f = 1.0 is the existing
-v3 data). Gives the second axis of a (question-specificity × evidence-amount)
-surface, with the same guardrails — the trimmed evidence stays identical
-across levels and paraphrases.
-
-### 8.3 C3 — POSIX for all three models *(approved, built)*
-
-POSIX (Chatterjee et al. 2024) needs token log-probabilities and is priced at
-~13 s/cell on cached generations, so it runs as a **comparison subset** (the
-same 50 questions as the existing qwen arm, now also llama + mistral) — enough
-for the cross-model correlation row ("POSIX belongs to the dispersion
-family"), not an everywhere-metric.
-
-### 8.4 Cross-dataset check: CondAmbigQA *(mode decision pending)*
-
-[CondAmbigQA-2K](https://huggingface.co/datasets/Apocalypse-AGI-DAO/CondAmbigQA-2K)
-(EMNLP 2025) was inspected by loading it: 2,000 questions; per question a list
-of `properties = {condition, groundtruth, citations}` and 20 retrieved
-Wikipedia passages. 1,451 questions have ≥ 2 conditions (the analogue of
-interpretations). **Two structural differences from AmbigQA**, found by
-checking the columns: the gold answers are **long-form** (median 36 words —
-our short-span NLI scoring doesn't transfer as-is), and the `condition` is a
-~35-word context paragraph, so its "disambiguation" means **appending
-context**, not rewording the question. Hence two wiring modes:
-
-- **(a) safe** — no scoring against their gold: frozen **vagueness-head
-  transfer** (embed `question` vs `question + condition`; one forward pass
-  each) + the gold-free dispersion metrics (H_sem, S_τ, TVD). Tests the
-  deliverable on a truly unseen dataset with zero adaptations.
-- **(b) full** — replication with disclosed deviations: judge-based scoring
-  against the long gold + an NLI leak-gate on each condition.
-
-Also free and already possible: the **830 NQ questions AmbigQA annotators
-marked *non-ambiguous*** form a held-out test-set for the vagueness head
-(labels from human judgment, questions never seen in training).
-
-### 8.5 Paper analyses *(done, committed)*
-
-Three independence arguments for "you need all three axes", already computed:
-**constructive counterexamples** (accuracy pinned at 0.5 while ρ_F goes 0→1;
-accuracy pinned while H_sem doubles; H_sem pinned while accuracy goes 1→0),
-**factor analysis** (the 14-metric correlation matrix yields exactly three
-factors — dispersion family / ability / ρ_F+ρ_u — explaining 70% of variance),
-and **octant occupancy** (median-splitting the three axes: all 8 high/low
-combinations are populated in every model × level — no axis predicts
-another). Plus bootstrap CIs for ρ_F (506 cells, median 95% width 0.18).
-
-### 8.6 Launch mechanics *(ready)*
-
-`bash cluster/submit_final_run.sh {ml-smoke|ml-prep|ml-eval|ml-dump|posix|dial}`
-— chained 30-minute GPU windows, per-cell resume, every artifact pulled by
-`run.sh pull`. The ML phases include a **human hard gate**: a review file of
-every generated mid-level rewrite must be read and approved before full
-compute runs (only relevant if option 3 of §8.1 is ever chosen).
-
 ---
 
-## 9. Final approved scope (all decisions made 2026-08-02)
-
-- **No constructed mid-level ladder** (§8.1: dead) and **no second dataset**
-  (§8.4: CondAmbigQA dead — its gold answers are long-form, median 36 words,
-  incompatible with our short-span scoring). The 2-level AmbigQA design
-  stands as-is; the uniform pinned target stays, with **collision flags
-  collected** for later reweighting.
-- The last cluster run = three independent, cache-friendly phases:
-  `bash cluster/submit_final_run.sh posix` (llama+mistral POSIX, 50-q
-  comparison subset), `... dial` (qwen evidence fractions 0.0/0.5), and
-  `... holdout` (TBG dump of all 2,002 AmbigQA questions incl. the 830
-  annotator-labeled non-ambiguous ones — the frozen vagueness head's
-  held-out test, no gold or scoring involved).
-- After the pull: `eval_vagueness_holdout.py` (frozen heads, OOD AUROC),
-  the dial/POSIX analyses, the across-question dose regression, and then
-  the paper.
+*Sections 8 and 9 of this document listed the final-run changes proposed on
+2026-08-02 and their approval status. That run completed on 2026-08-03 and the
+plan is spent; what was actually run and found is in
+`data/final_run_results.md` and `docs/PROJECT_STATE_2026-08-27.md`. The
+planning sections were removed on 2026-08-27 and remain in git history.*

@@ -1,4 +1,4 @@
-"""TBG hidden-state dump for FI probes (FI_PROBES_PLAN.md §2-3).
+"""TBG hidden-state dump for FI probes (the FI-probes design note §2-3).
 
 For every (question, spec level, model, paraphrase) cell member, run ONE
 forward pass of the exact prompt the eval runs use (same `_assemble_messages`,

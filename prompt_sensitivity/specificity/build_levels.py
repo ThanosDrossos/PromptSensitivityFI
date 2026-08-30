@@ -125,7 +125,7 @@ def build_spec_levels_multilevel(
     mid_subset: tuple[int, ...],
     include_evidence: bool = True,
 ) -> list[SpecRow]:
-    """[L0, L_mid, L_top] for one m0>=3 AmbigQuestion (FINAL_PHASE_PLAN C1).
+    """[L0, L_mid, L_top] for one m0>=3 AmbigQuestion (the final-phase plan C1).
 
     spec_level semantics in THIS ladder: 0 = ambiguous (m_valid=m0),
     1 = partially disambiguated (m_valid=|subset|), 2 = fully disambiguated

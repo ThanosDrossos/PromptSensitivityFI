@@ -579,7 +579,7 @@ def _run_spec_cell(
         row_dict["f_graded_per_paraphrase"] = None
         row_dict["f_graded_mean"] = None
         row_dict["aufi_in_graded"] = None
-    # Sensitivity v2 (METRIC_PROPOSALS M1+M2): rho_F functional ICC + ΔFI
+    # Sensitivity v2 (the v2 metric proposals M1+M2): rho_F functional ICC + ΔFI
     # reliability premium — the accuracy-decoupled sensitivity scalars.
     row_dict.update(compute_row_metrics(f_graded, k_samples))
     # Per-paraphrase H_sem for the P3 probe: SEP predicts PER-PROMPT semantic
@@ -661,7 +661,7 @@ def _parse_args() -> argparse.Namespace:
                              "chain, then per-model eval chains in parallel)")
     parser.add_argument("--out", type=str, default="data/specificity_metrics.parquet")
     parser.add_argument("--dry-run", action="store_true")
-    # ---- multi-level ladder (FINAL_PHASE_PLAN C1) ----
+    # ---- multi-level ladder (the final-phase plan C1) ----
     parser.add_argument("--ladder", choices=["two", "multilevel"], default="two",
                         help="'multilevel' = L0/L_mid/L_top (spec_level 0/1/2) on "
                              "m0>=3 questions via gated partial disambiguation; "
@@ -678,7 +678,7 @@ def _parse_args() -> argparse.Namespace:
                              "multilevel ladder MUST NOT share the two-level "
                              "cache: (qid, spec_level=1) means 'disambiguated' "
                              "there but 'L_mid' here (default auto-separates)")
-    # ---- evidence dial (FINAL_PHASE_PLAN C6) ----
+    # ---- evidence dial (the final-phase plan C6) ----
     parser.add_argument("--evidence-fraction", type=float, default=1.0,
                         help="keep the first ceil(f*n) evidence snippets, "
                              "identical across levels+paraphrases (0.0 = "
@@ -770,7 +770,7 @@ def main() -> int:
         width_arm=width_arm_spec)
 
     if args.prep_only:
-        # v3 topology (FI_PROBES_PLAN.md §4): ONE prep chain builds every
+        # v3 topology (the FI-probes design note §4): ONE prep chain builds every
         # universe, THEN per-model eval chains run in parallel reading the cache
         # read-only — without this barrier two eval chains that both find a
         # universe missing would generate it concurrently and race the cache's

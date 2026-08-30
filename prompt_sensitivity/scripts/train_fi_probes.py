@@ -1,6 +1,6 @@
 """FI probes — predict FI labels from single-prompt TBG hidden states.
 
-The capstone (FI_PROBES_PLAN.md): transfer Semantic Entropy Probes (Kossen et
+The capstone (the FI-probes design note): transfer Semantic Entropy Probes (Kossen et
 al. 2024, arXiv:2406.15927) to Functional Information. Features = the eval
 model's OWN hidden state at the last templated prompt token (TBG, captured by
 scripts/dump_hidden_states.py); labels = FI metrics from a specificity run.

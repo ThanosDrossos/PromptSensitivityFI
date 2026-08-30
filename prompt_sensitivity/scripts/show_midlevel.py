@@ -1,4 +1,4 @@
-"""Render the L_mid human-review file (FINAL_PHASE_PLAN C1 HARD GATE).
+"""Render the L_mid human-review file (the final-phase plan C1 HARD GATE).
 
 Reads the midlevel cache + AmbigQA and writes a markdown review of the first
 N accepted rewrites: the ambiguous question, every interpretation marked
