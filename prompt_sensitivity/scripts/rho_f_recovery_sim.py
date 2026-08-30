@@ -263,8 +263,8 @@ def write_report(root: Path, rec: pd.DataFrame, dr: pd.DataFrame, ident: pd.Data
     lines += [
         "",
         "**Reading.** The reported delta is attenuated roughly 3-5x (qwen/mistral) "
-        "and 2-3x (llama): a true +0.20 — larger than the whole between-model range "
-        "of rho_F in this study — reports as ~+0.04-0.05 in qwen and mistral and "
+        "and 2-3x (llama): a true +0.20 — more than half the between-model range "
+        "of rho_F in this study (0.091 to 0.444) — reports as ~+0.04-0.05 in qwen and mistral and "
         "~+0.08 in llama. Any bound stated on the posterior-mean scale must "
         "therefore be read through this attenuation: the '0.04' CI bound of the "
         "specificity null corresponds to true effects of roughly 0.2 (qwen, "

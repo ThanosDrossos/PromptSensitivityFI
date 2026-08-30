@@ -22,7 +22,10 @@ decision-robust and which are decision-dependent. Source of adjusted statistics:
 | 13 | width-arm ρ_F estimator | **MoM on covered cells + N-matched hierarchical (since 2026-08-16)** | the planned per-arm hierarchical fit (P2) | the substitution changes which model supports the prediction: MoM covered gives qwen p = .0035 (n = 22), llama .079, mistral .051; the raw per-arm hierarchical fit gives qwen p = 1 (inverted) — a narrow-arm identifiability failure, substantiated by simulation in `data/rho_f_recovery_sim.md` §3; N-matched hierarchical gives qwen p = 2.8e-08 but llama p = .99. The width conclusion is therefore stated per-estimator, with n, never as decision-robust. |
 
 Decision-robust across all forks: the model ordering of ρ_F (qwen > mistral >
-llama, share and σ²_B, both golds, both estimators, both paraphrase generators);
+llama) on the share under both golds, both estimators, and both paraphrase
+generators, and on σ²_B under both golds and both estimators — under the swap
+generator the σ²_B means reorder to mistral > qwen > llama (verified
+2026-08-27 from `data/width_swap_*.parquet`);
 the flatness of ρ_F under the specificity dial (as a point estimate — its
 *evidential strength* is bounded by the estimator's attenuation, see
 `data/rho_f_recovery_sim.md`); the direction of the union-gold accuracy gain;

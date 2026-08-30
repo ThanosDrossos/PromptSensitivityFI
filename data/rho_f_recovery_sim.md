@@ -12,7 +12,7 @@ Per-cell mean success held at its observed value; true rho = model's own fitted 
 | llama_3_1_8b | 0.091 | +0.004 [-0.005, +0.012] | +0.020 [+0.006, +0.038] | +0.039 [+0.023, +0.049] | +0.075 [+0.059, +0.090] |
 | mistral_7b_v03 | 0.239 | +0.001 [-0.003, +0.006] | +0.008 [+0.005, +0.020] | +0.026 [+0.018, +0.034] | +0.047 [+0.038, +0.057] |
 
-**Reading.** The reported delta is attenuated roughly 3-5x (qwen/mistral) and 2-3x (llama): a true +0.20 — larger than the whole between-model range of rho_F in this study — reports as ~+0.04-0.05 in qwen and mistral and ~+0.08 in llama. Any bound stated on the posterior-mean scale must therefore be read through this attenuation: the '0.04' CI bound of the specificity null corresponds to true effects of roughly 0.2 (qwen, mistral) and 0.10-0.15 (llama). The null is genuinely informative only against effects of that size, and the paper's wording must say so.
+**Reading.** The reported delta is attenuated roughly 3-5x (qwen/mistral) and 2-3x (llama): a true +0.20 — more than half the between-model range of rho_F in this study (0.091 to 0.444) — reports as ~+0.04-0.05 in qwen and mistral and ~+0.08 in llama. Any bound stated on the posterior-mean scale must therefore be read through this attenuation: the '0.04' CI bound of the specificity null corresponds to true effects of roughly 0.2 (qwen, mistral) and 0.10-0.15 (llama). The null is genuinely informative only against effects of that size, and the paper's wording must say so.
 
 ## 2. Rubin-pooled paired test on the committed posterior draws
 
