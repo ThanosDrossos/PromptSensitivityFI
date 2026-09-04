@@ -14,30 +14,39 @@ re-runs locally from the committed parquets.
 
 ## The frame — use this vocabulary
 
-The published paper measures **three axes** and manipulates **two variables**:
+The paper measures **three axes** and manipulates **two variables**. Axis
+names were changed on 2026-09-04 for the ICLR version (the seminar paper said
+*competence* and *formulation sensitivity*; those names are now retired):
 
 | | what it is | how it is measured / set |
 |---|---|---|
-| **Competence** | how often the model is right | graded accuracy; the FI_in(q,θ) curve |
-| **Formulation sensitivity** | how much of success is decided by *which phrasing* | **ρ_F**, a one-way ICC with decoding noise subtracted; absolute σ²_B alongside |
+| **Mean task success** | how often the model is right | graded accuracy; the FI_in(q,θ) curve |
+| **Formulation dependence** | how much of success is decided by *which formulation* | **ρ_F**, a one-way ICC with decoding noise subtracted; absolute σ²_B alongside |
 | **Output dispersion** | how scattered the answers are | **H_sem** (the sole representative) |
 | **Specificity** — *content variable*, manipulated | how narrowly the question fixes what is asked | **FI_spec** = log₂(m₀/m_valid), from annotations only |
 | **Width** — *form variable*, manipulated | how broadly the wording varies at fixed meaning | generator configuration: narrow / production / wide (+ swap arm) |
 
-Terminology that is **retired** and must not come back: "three axes + one
-dial" and the word *dial* generally (say *the specificity intervention* /
-*the width intervention*); FI_spec as a fourth measurement (it quantifies the
-setting of a manipulated variable, and its bit scale is **not** a validated
-dose); "reliability probe" (the four probes are **underspecification,
-dispersion, fragility, correctness**); "vagueness" for the underspecification
-probe or its holdout. A **cell** is one question at one specificity level for
-one model.
+Terminology that is **retired** and must not come back: "competence" and
+"formulation sensitivity" (now *mean task success* and *formulation
+dependence*); "operational targets" or "latent axes" for the trio (they are
+*axes*); "three axes + one dial" and the word *dial* generally (say *the
+specificity intervention* / *the width intervention*); "stress test" for the
+interventions; "reference class" outside the appendix estimand (say *paraphrase
+universe*); FI_spec as a fourth measurement (it quantifies the setting of a
+manipulated variable, and its bit scale is **not** a validated dose);
+"reliability probe" (the four probes are **underspecification, dispersion,
+fragility, correctness**); "vagueness" for the underspecification probe or its
+holdout. A **cell** is one question at one specificity level for one model; a
+member of a paraphrase universe is a *formulation*.
 
 ## Where truth lives (in order of authority)
 
-1. **The submitted paper** (`../SensitivityFunctionalInformationPaper`, branch
-   `main`) — every number in it was traced to an artifact in the 2026-08-27
-   audit.
+1. **The paper** (`../DSI-Seminar-Prompt-Sensitivity-FI---Paper`, GitHub
+   `ThanosDrossos/DSI-Seminar-Prompt-Sensitivity-FI---Paper`, Overleaf-synced on
+   `main`; the ICLR merge lives on `feat/iclr-restructure`). The older
+   `../SensitivityFunctionalInformationPaper` clone is the seminar submission of
+   2026-08-26 and is frozen. Every number in the seminar paper was traced to an
+   artifact in the 2026-08-27 audit; the ICLR version inherits those numbers.
 2. `data/stats_hygiene.md` (+ `.json`) — the declared 12-test primary family.
    Then `data/metric_reductions.md`, `width_dial_analysis.md`,
    `probe_eval_hardened.md` + `probe_eval_ood.json`, `rho_f_recovery_sim.md`,
@@ -100,9 +109,10 @@ still carry the superseded versions, so watch for these:
   new model calls is cluster work; everything else re-runs locally.
 - Analysis scripts have no Makefile targets; invoke modules directly.
 - Paper figures: `uv run python -m prompt_sensitivity.scripts.make_paper_figures
-  --out ../SensitivityFunctionalInformationPaper/1_Figures`. The script reads
+  --out ../DSI-Seminar-Prompt-Sensitivity-FI---Paper/1_Figures`. The script reads
   committed artifacts only — there are no hardcoded numbers, so never
-  hand-patch a figure.
+  hand-patch a figure. Panel labels carry the axis names, so a rename means
+  editing the script and regenerating.
 - `data/*.md` artifacts are **script-generated**: fix the generating script,
   not the markdown, or the next run reverts the edit.
 - `cluster/runbooks/*` contain the bwUniCluster username — scrub before making
@@ -110,8 +120,8 @@ still carry the superseded versions, so watch for these:
 
 ## The paper repo and Overleaf
 
-`../SensitivityFunctionalInformationPaper` syncs with Overleaf on **`main`**
-(no `master`). **Always `git pull` before editing the tex** — Thanos edits in
+`../DSI-Seminar-Prompt-Sensitivity-FI---Paper` syncs with Overleaf on
+**`main`** (no `master`). **Always `git pull` before editing the tex** — Thanos edits in
 Overleaf between sessions. When both sides change, Overleaf pushes an
 `overleaf-YYYY-MM-DD-HHMM` branch and asks for a manual merge: diff it against
 its merge base, merge keeping the newer revision plus any genuine Overleaf
@@ -126,11 +136,10 @@ reject. **Abstract 2026-09-18 AoE, paper 2026-09-25 AoE.** Double-blind; the
 AI-use statement is mandatory and excluded from the limit, as are the optional
 reproducibility and ethics statements.
 
-The current build is the **non-anonymous seminar version**: 24 pages total with
-content on pp. 1–13. Reaching submission needs ~4 pages of content cut,
-`\iclrfinalcopy` commented out (which restores anonymity and line numbers),
-removal of the author block, matriculation number, seminar header, advisor and
-examiner names and submission date, and an anonymized repo link in the
-reproducibility statement. The cut plan in
-`docs/reviews/REVIEW_2026-08-16_Consolidated_Action_Plan.md` §6 predates the
-two-variable reframe — treat it as input, not as the plan.
+The ICLR version (branch `feat/iclr-restructure`, 2026-09-04) is anonymous,
+nine main-text pages, built with `tectonic main.tex`. Still open before
+submission: the anonymized repository URL in the reproducibility statement
+(marked `% TODO(author)` in `main.tex`) and the author's sign-off on the
+merged text. The seminar build (`../SensitivityFunctionalInformationPaper`)
+is 24 pages and non-anonymous; the cut plan in
+`docs/reviews/REVIEW_2026-08-16_Consolidated_Action_Plan.md` §6 is history.
