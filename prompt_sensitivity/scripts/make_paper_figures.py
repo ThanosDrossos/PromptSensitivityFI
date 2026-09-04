@@ -60,7 +60,7 @@ def load_levels() -> dict[str, dict[str, dict[int, tuple[float, float, float]]]]
     """Fig. 1a-c inputs: per-model level means from the committed parquets.
 
     accuracy: union_gold_*.parquet (f_graded_union_mean); dispersion:
-    specificity_v3_*.parquet (h_sem_mean); formulation sensitivity:
+    specificity_v3_*.parquet (h_sem_mean); formulation dependence:
     rho_f_hier_union_*.parquet (rho_f_hier). Values match the level means
     behind data/stats_hygiene.md; the paired significance tests live there.
     """
@@ -152,9 +152,9 @@ def fig1(out: Path) -> None:
     fig, axes = plt.subplots(1, 4, figsize=(7.0, 2.05))
 
     panels = [
-        ("accuracy", "(a) Competence", "accuracy (union gold)"),
+        ("accuracy", "(a) Mean task success", "accuracy (union gold)"),
         ("hsem", "(b) Output dispersion", "$H_{sem}$ (bits)"),
-        ("rhof", "(c) Formulation sens.", "$\\rho_F$ (hierarchical)"),
+        ("rhof", "(c) Formulation dep.", "$\\rho_F$ (hierarchical)"),
     ]
     for ax, (key, title, ylab) in zip(axes[:3], panels, strict=False):
         for m in MODELS:
@@ -211,7 +211,7 @@ def fig1(out: Path) -> None:
     ax.set_xticks(range(3))
     ax.set_xticklabels(["narrow", "prod.", "wide"])
     ax.set_xlim(-0.35, 2.35)
-    ax.set_title("(d) Formulation sens.,\nwidth intervention", loc="left", fontweight="bold", fontsize=7.6)
+    ax.set_title("(d) Formulation dep.,\nwidth intervention", loc="left", fontweight="bold", fontsize=7.6)
     ax.set_ylabel("$\\rho_F$ (MoM, paired cells)")
     ax.legend(
         frameon=False,
@@ -235,7 +235,7 @@ def fig2(out: Path) -> None:
     meta = json.loads((FIGS / "v3_metric_corr_labels.json").read_text())
     labels = meta["labels"]
 
-    # order: dispersion family, competence family, sensitivity family
+    # order: dispersion family, mean-task-success family, formulation-dependence family
     groups = [
         (
             "Dispersion",
@@ -249,8 +249,8 @@ def fig2(out: Path) -> None:
                 "FI_out_fixed",
             ],
         ),
-        ("Competence", ["accuracy", "AUFI (graded)", "FI premium  [M2]"]),
-        ("Formulation\nsensitivity", ["rho_F  [M1]", "rho_u (Cox)", "spread (Cao)", "ESS_in"]),
+        ("Mean task\nsuccess", ["accuracy", "AUFI (graded)", "FI premium  [M2]"]),
+        ("Formulation\ndependence", ["rho_F  [M1]", "rho_u (Cox)", "spread (Cao)", "ESS_in"]),
     ]
     order, bounds, gnames = [], [], []
     for gname, members in groups:
