@@ -154,7 +154,7 @@ def fig1(out: Path) -> None:
     panels = [
         ("accuracy", "(a) Mean task success", "accuracy (union gold)"),
         ("hsem", "(b) Output dispersion", "$H_{sem}$ (bits)"),
-        ("rhof", "(c) Formulation dep.", "$\\rho_F$ (hierarchical)"),
+        ("rhof", "(c) Formulation dependence,\nspecificity intervention", "$\\rho_F$ (hierarchical)"),
     ]
     for ax, (key, title, ylab) in zip(axes[:3], panels, strict=False):
         for m in MODELS:
@@ -177,7 +177,7 @@ def fig1(out: Path) -> None:
         ax.set_xticks([0, 1])
         ax.set_xticklabels(["ambig.", "disamb."])
         ax.set_xlim(-0.35, 1.35)
-        ax.set_title(title, loc="left", fontweight="bold")
+        ax.set_title(title, loc="left", fontweight="bold", fontsize=7.3 if "\n" in title else None)
         ax.set_ylabel(ylab)
     # one shared model legend above the row, clear of all data
     handles, labels = axes[0].get_legend_handles_labels()
@@ -211,7 +211,7 @@ def fig1(out: Path) -> None:
     ax.set_xticks(range(3))
     ax.set_xticklabels(["narrow", "prod.", "wide"])
     ax.set_xlim(-0.35, 2.35)
-    ax.set_title("(d) Formulation dep.,\nwidth intervention", loc="left", fontweight="bold", fontsize=7.6)
+    ax.set_title("(d) Formulation dependence,\nwidth intervention", loc="left", fontweight="bold", fontsize=7.3)
     ax.set_ylabel("$\\rho_F$ (MoM, paired cells)")
     ax.legend(
         frameon=False,
