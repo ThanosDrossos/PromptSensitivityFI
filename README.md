@@ -1,7 +1,6 @@
 # PromptSensitivityFI
 
-Measuring **prompt sensitivity in bits**. KIT seminar project (Thanos Drossos,
-supervisor Moritz Diener).
+Measuring **prompt sensitivity in bits**.
 
 Every metric here is the same ruler — **bits = −log₂(surviving fraction)** —
 adapted from Szostak (2003) / Hazen et al. (2007) functional information and
