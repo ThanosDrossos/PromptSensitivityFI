@@ -14,9 +14,11 @@ re-runs locally from the committed parquets.
 
 ## The frame — use this vocabulary
 
-The paper measures **three axes** and manipulates **two variables**. Axis
-names were changed on 2026-09-04 for the ICLR version (the seminar paper said
-*competence* and *formulation sensitivity*; those names are now retired):
+The paper measures **three factors** and manipulates **two variables**. The
+factor names were changed on 2026-09-04 for the ICLR version (the seminar paper
+said *competence* and *formulation sensitivity*; those names are now retired),
+and on 2026-09-06 the words *axis* and *indices* were retired in favor of
+*factor* and *metrics*:
 
 | | what it is | how it is measured / set |
 |---|---|---|
@@ -28,8 +30,11 @@ names were changed on 2026-09-04 for the ICLR version (the seminar paper said
 
 Terminology that is **retired** and must not come back: "competence" and
 "formulation sensitivity" (now *mean task success* and *formulation
-dependence*); "operational targets" or "latent axes" for the trio (they are
-*axes*); "three axes + one dial" and the word *dial* generally (say *the
+dependence*); "axis"/"axes", "operational targets" or "latent axes" for the
+trio (they are *factors*); "indices" and "candidate metrics" for the fourteen
+published and constructed quantities (they are *metrics*; the seven
+clustering-derived ones are the *dispersion metrics*); "three axes + one dial"
+and the word *dial* generally (say *the
 specificity intervention* / *the width intervention*); "stress test" for the
 interventions; "reference class" outside the appendix estimand (say *paraphrase
 universe*); FI_spec as a fourth measurement (it quantifies the setting of a
@@ -43,7 +48,8 @@ member of a paraphrase universe is a *formulation*.
 
 1. **The paper** (`../DSI-Seminar-Prompt-Sensitivity-FI---Paper`, GitHub
    `ThanosDrossos/DSI-Seminar-Prompt-Sensitivity-FI---Paper`, Overleaf-synced on
-   `main`; the ICLR merge lives on `feat/iclr-restructure`). The older
+   `main`, which holds the ICLR version since `feat/iclr-restructure` was
+   merged on 2026-09-04). The older
    `../SensitivityFunctionalInformationPaper` clone is the seminar submission of
    2026-08-26 and is frozen. Every number in the seminar paper was traced to an
    artifact in the 2026-08-27 audit; the ICLR version inherits those numbers.
@@ -72,11 +78,11 @@ About 360 quantitative claims were traced to artifacts and adversarially
 re-verified; 13 corrections landed in the paper. Older documents and drafts
 still carry the superseded versions, so watch for these:
 
-- The **|ρ| ≤ 0.14 cross-axis bound applies only to ρ_F** against the other two
-  axes, under the hierarchical estimator. Competence and output dispersion are
-  clearly negatively associated within strata (Spearman −0.34 to −0.72, union
-  gold). The old blanket "no cross-axis association exceeds 0.14 / equivalence
-  bounds only to 0.34" claim is **wrong**.
+- The **|ρ| ≤ 0.14 cross-factor bound applies only to ρ_F** against the other
+  two factors, under the hierarchical estimator. Mean task success and output
+  dispersion are clearly negatively associated within strata (Spearman −0.34 to
+  −0.72, union gold). The old blanket "no cross-factor association exceeds 0.14
+  / equivalence bounds only to 0.34" claim is **wrong**.
 - The grid is 900 cells but **89,730 scored responses**, not 90,000: one
   universe retains a single paraphrase, so it is "up to ten paraphrases".
 - The **Qwen > Mistral > Llama** ordering holds under both gold sets and both
@@ -86,7 +92,7 @@ still carry the superseded versions, so watch for these:
 - ρ_F specificity null: p ≥ .41 union gold, p ≥ .22 target-gold replication;
   Rubin bracket **±0.08**; a true change of 0.20 is **more than half** the
   between-model range, not larger than all of it.
-- Width arm: competence CIs within **4** accuracy points (max +0.033).
+- Width arm: mean task success CIs within **4** accuracy points (max +0.033).
 - Spread beats or matches ρ_F at predicting rephrasing payoff in **2 of 3**
   models (k=20) and in all three on disjoint paraphrase sets — the disjoint
   check does **not** reproduce the same per-model ordering.
@@ -111,7 +117,7 @@ still carry the superseded versions, so watch for these:
 - Paper figures: `uv run python -m prompt_sensitivity.scripts.make_paper_figures
   --out ../DSI-Seminar-Prompt-Sensitivity-FI---Paper/1_Figures`. The script reads
   committed artifacts only — there are no hardcoded numbers, so never
-  hand-patch a figure. Panel labels carry the axis names, so a rename means
+  hand-patch a figure. Panel labels carry the factor names, so a rename means
   editing the script and regenerating.
 - `data/*.md` artifacts are **script-generated**: fix the generating script,
   not the markdown, or the next run reverts the edit.
@@ -136,10 +142,14 @@ reject. **Abstract 2026-09-18 AoE, paper 2026-09-25 AoE.** Double-blind; the
 AI-use statement is mandatory and excluded from the limit, as are the optional
 reproducibility and ethics statements.
 
-The ICLR version (branch `feat/iclr-restructure`, 2026-09-04) is anonymous,
-nine main-text pages, built with `tectonic main.tex`. Still open before
-submission: the anonymized repository URL in the reproducibility statement
-(marked `% TODO(author)` in `main.tex`) and the author's sign-off on the
-merged text. The seminar build (`../SensitivityFunctionalInformationPaper`)
+The ICLR version (on `main` since 2026-09-04) is anonymous, nine main-text
+pages, built with `tectonic main.tex`. Thanos's first review round landed in
+Overleaf on 2026-09-06 to 09-08; its German `%` comments in `main_body.tex`
+are the open work list (intro motivation, Section 3 roadmap, probe storyline,
+results table, shorter abstract, wider discussion with limitations and future
+work merged). Still open before submission: the anonymized repository URL in
+the reproducibility statement (marked `% TODO(author)` in `main.tex`), the
+title and abstract still saying "Indices"/"Three-Axis"/"axes", and the
+author's sign-off. The seminar build (`../SensitivityFunctionalInformationPaper`)
 is 24 pages and non-anonymous; the cut plan in
 `docs/reviews/REVIEW_2026-08-16_Consolidated_Action_Plan.md` §6 is history.
