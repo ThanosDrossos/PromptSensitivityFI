@@ -1,0 +1,4 @@
+interface:
+  display_name: "Improve Scientific Writing"
+  short_description: "Strengthen scientific prose and argumentation"
+  default_prompt: "Use $improve-scientific-writing to revise this scientific text for clarity, coherence, and evidential precision."

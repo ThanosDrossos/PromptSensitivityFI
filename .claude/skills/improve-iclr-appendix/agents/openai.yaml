@@ -1,0 +1,4 @@
+interface:
+  display_name: "Improve ICLR Appendix"
+  short_description: "Organize ICLR supplementary evidence clearly"
+  default_prompt: "Use $improve-iclr-appendix to organize this appendix while keeping decision-critical evidence in the main paper."

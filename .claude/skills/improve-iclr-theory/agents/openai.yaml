@@ -1,0 +1,4 @@
+interface:
+  display_name: "Improve ICLR Theory"
+  short_description: "Align ICLR theory, assumptions, and guarantees"
+  default_prompt: "Use $improve-iclr-theory to improve this theory section while preserving supported guarantees."

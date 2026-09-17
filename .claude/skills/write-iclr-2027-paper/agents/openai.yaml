@@ -1,0 +1,4 @@
+interface:
+  display_name: "Write ICLR 2027 Paper"
+  short_description: "Draft and audit an ICLR 2027 research paper"
+  default_prompt: "Use $write-iclr-2027-paper to strengthen this manuscript for ICLR 2027."

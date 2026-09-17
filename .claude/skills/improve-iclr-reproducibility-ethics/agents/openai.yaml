@@ -1,0 +1,4 @@
+interface:
+  display_name: "Improve ICLR Reproducibility and Ethics"
+  short_description: "Ground ICLR responsibility statements in facts"
+  default_prompt: "Use $improve-iclr-reproducibility-ethics to improve these responsibility statements using only verified facts."

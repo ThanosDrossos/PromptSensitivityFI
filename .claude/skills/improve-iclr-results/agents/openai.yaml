@@ -1,0 +1,4 @@
+interface:
+  display_name: "Improve ICLR Results"
+  short_description: "Report ICLR evidence with calibrated inference"
+  default_prompt: "Use $improve-iclr-results to improve this results section while preserving supplied values."

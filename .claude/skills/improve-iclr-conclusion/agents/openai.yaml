@@ -1,0 +1,4 @@
+interface:
+  display_name: "Improve ICLR Conclusion"
+  short_description: "End an ICLR paper with a supported synthesis"
+  default_prompt: "Use $improve-iclr-conclusion to improve this conclusion while preserving the supported scoped answer."
