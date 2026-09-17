@@ -44,6 +44,20 @@ fragility, correctness**); "vagueness" for the underspecification probe or its
 holdout. A **cell** is one question at one specificity level for one model; a
 member of a paraphrase universe is a *formulation*.
 
+**How the representatives are justified (since 2026-09-16, advisor feedback):**
+the component analysis must not contain the metric it justifies. Stage 1
+decomposes the **ten published metrics** only (five dispersion metrics; accuracy
+plus the best- and worst-formulation accuracies of Sclar/Mizrahi/Cao; spread;
+ρ_u): Horn retains **two** components (dispersion, success), and formulation
+dependence is the factor no published metric carries (spread and ρ_u correlate
+only +.42). Held out, ρ_F projects +.89 on the published dependence component
+and ≤ +.10 elsewhere. Stage 2 adds ρ_F: Horn retains **three** (1.61 vs 1.29,
+stable over n and seeds). The old fourteen-metric "Horn retains three" in
+`factor_audit.md` rested on the accuracy aliases AUFI and FI premium and is
+superseded; the six constructed metrics (ρ_F, AUFI, ΔFI premium, FI_out^fixed,
+Var[FI_out], ESS_in) appear in the appendix only. Source:
+`data/metric_selection.md`, FORKING_PATHS fork 14.
+
 ## Where truth lives (in order of authority)
 
 1. **The paper** (`../DSI-Seminar-Prompt-Sensitivity-FI---Paper`, GitHub
@@ -54,7 +68,9 @@ member of a paraphrase universe is a *formulation*.
    2026-08-26 and is frozen. Every number in the seminar paper was traced to an
    artifact in the 2026-08-27 audit; the ICLR version inherits those numbers.
 2. `data/stats_hygiene.md` (+ `.json`) — the declared 12-test primary family.
-   Then `data/metric_reductions.md`, `width_dial_analysis.md`,
+   Then `data/metric_selection.md` (+ `.json`; the two-stage metric audit that
+   selects the three representatives, since 2026-09-16), `metric_reductions.md`,
+   `width_dial_analysis.md`,
    `probe_eval_hardened.md` + `probe_eval_ood.json`, `rho_f_recovery_sim.md`,
    `rho_f_construct_validity.md`, `independence_{union,target}.md`,
    `evidence_coverage_audit.md`, `mechanical_null.md`,
@@ -116,8 +132,8 @@ still carry the superseded versions, so watch for these:
 - Analysis scripts have no Makefile targets; invoke modules directly.
 - Paper figures: `uv run python -m prompt_sensitivity.scripts.make_paper_figures
   --out ../DSI-Seminar-Prompt-Sensitivity-FI---Paper/1_Figures`. The script reads
-  committed artifacts only — there are no hardcoded numbers, so never
-  hand-patch a figure. Panel labels carry the factor names, so a rename means
+  committed artifacts only (fig2 reads `data/metric_selection.json`) — there are
+  no hardcoded numbers, so never hand-patch a figure. Panel labels carry the factor names, so a rename means
   editing the script and regenerating.
 - `data/*.md` artifacts are **script-generated**: fix the generating script,
   not the markdown, or the next run reverts the edit.
