@@ -1,12 +1,12 @@
 """Metric selection in two stages: published metrics first, rho_F projected, then added.
 
 WHY (advisor feedback, 2026-09-15). The component analysis that justifies the
-three factors must not contain the metric it is meant to justify. The earlier
-audit (factor_audit.py) decomposed all fourteen metrics, our own rho_F and the
-functional-information variants included. This script:
+three factors must not contain the metric it is meant to justify. The
+fourteen-metric analysis in factor_audit.py decomposed rho_F and the
+functional-information variants together with the published metrics. This script:
 
-  Stage 1  decomposes the PUBLISHED metrics only (ten: the eight of the earlier
-           audit plus the best- and worst-formulation accuracies of Sclar/
+  Stage 1  decomposes the PUBLISHED metrics only (ten: the eight of the
+           fourteen-metric analysis plus the best- and worst-formulation accuracies of Sclar/
            Mizrahi/Cao, computed here from the graded per-formulation rates),
            runs Horn's parallel analysis, and projects the six constructed
            metrics into that space as supplementary variables -- a held-out
@@ -347,7 +347,8 @@ def render(res: dict) -> str:
         "",
         "F_max and F_min are the best- and worst-formulation graded accuracies of a cell, computed",
         "from the persisted per-formulation rates (`f_graded_per_paraphrase`), the same basis as",
-        "accuracy and ρ_F; they were added to the audit on 2026-09-16 (FORKING_PATHS fork 14). The",
+        "accuracy and ρ_F (their relation to the fourteen-metric analysis in `data/factor_audit.md`",
+        "is recorded as FORKING_PATHS fork 14). The",
         "persisted `spread` keeps the pipeline's original scoring rule (Spearman 0.66–0.85 with",
         "F_max − F_min on graded rates); a graded-spread variant is in §7. POSIX (Chatterjee et al.",
         "2024) is measured on a separate 100-cell arm and is analyzed in `data/metric_reductions.md`.",

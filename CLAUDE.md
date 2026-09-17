@@ -68,7 +68,7 @@ Var[FI_out], ESS_in) appear in the appendix only. Source:
    2026-08-26 and is frozen. Every number in the seminar paper was traced to an
    artifact in the 2026-08-27 audit; the ICLR version inherits those numbers.
 2. `data/stats_hygiene.md` (+ `.json`) — the declared 12-test primary family.
-   Then `data/metric_selection.md` (+ `.json`; the two-stage metric audit that
+   Then `data/metric_selection.md` (+ `.json`; the two-stage metric analysis that
    selects the three representatives, since 2026-09-16), `metric_reductions.md`,
    `width_dial_analysis.md`,
    `probe_eval_hardened.md` + `probe_eval_ood.json`, `rho_f_recovery_sim.md`,

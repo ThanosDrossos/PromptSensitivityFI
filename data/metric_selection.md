@@ -31,7 +31,8 @@ variable and repeats the retention test. The earlier fourteen-metric decompositi
 
 F_max and F_min are the best- and worst-formulation graded accuracies of a cell, computed
 from the persisted per-formulation rates (`f_graded_per_paraphrase`), the same basis as
-accuracy and ρ_F; they were added to the audit on 2026-09-16 (FORKING_PATHS fork 14). The
+accuracy and ρ_F (their relation to the fourteen-metric analysis in `data/factor_audit.md`
+is recorded as FORKING_PATHS fork 14). The
 persisted `spread` keeps the pipeline's original scoring rule (Spearman 0.66–0.85 with
 F_max − F_min on graded rates); a graded-spread variant is in §7. POSIX (Chatterjee et al.
 2024) is measured on a separate 100-cell arm and is analyzed in `data/metric_reductions.md`.
