@@ -1,0 +1,4 @@
+interface:
+  display_name: "Improve ICLR Method"
+  short_description: "Make an ICLR method assessable and reproducible"
+  default_prompt: "Use $improve-iclr-method to improve this method section while preserving supported claims."

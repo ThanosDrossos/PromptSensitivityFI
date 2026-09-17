@@ -1,0 +1,4 @@
+interface:
+  display_name: "Improve ICLR Related Work"
+  short_description: "Clarify novelty through closest-work comparison"
+  default_prompt: "Use $improve-iclr-related-work to reorganize this literature positioning around supported distinctions."

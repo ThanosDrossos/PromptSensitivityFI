@@ -1,0 +1,4 @@
+interface:
+  display_name: "Improve ICLR Discussion and Limitations"
+  short_description: "Calibrate ICLR implications and limitations"
+  default_prompt: "Use $improve-iclr-discussion-limitations to improve this discussion and limitations content while preserving supplied evidence."

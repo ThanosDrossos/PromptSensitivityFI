@@ -1,0 +1,4 @@
+interface:
+  display_name: "Improve ICLR Experimental Setup"
+  short_description: "Strengthen ICLR experimental validity and controls"
+  default_prompt: "Use $improve-iclr-experimental-setup to improve this evaluation protocol while preserving supported details."

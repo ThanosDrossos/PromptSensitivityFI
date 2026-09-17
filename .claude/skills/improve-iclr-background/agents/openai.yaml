@@ -1,0 +1,4 @@
+interface:
+  display_name: "Improve ICLR Background"
+  short_description: "Focus ICLR background and stabilize notation"
+  default_prompt: "Use $improve-iclr-background to focus these preliminaries on downstream needs."

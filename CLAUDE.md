@@ -14,32 +14,63 @@ re-runs locally from the committed parquets.
 
 ## The frame — use this vocabulary
 
-The published paper measures **three axes** and manipulates **two variables**:
+The paper measures **three factors** and manipulates **two variables**. The
+factor names were changed on 2026-09-04 for the ICLR version (the seminar paper
+said *competence* and *formulation sensitivity*; those names are now retired),
+and on 2026-09-06 the words *axis* and *indices* were retired in favor of
+*factor* and *metrics*:
 
 | | what it is | how it is measured / set |
 |---|---|---|
-| **Competence** | how often the model is right | graded accuracy; the FI_in(q,θ) curve |
-| **Formulation sensitivity** | how much of success is decided by *which phrasing* | **ρ_F**, a one-way ICC with decoding noise subtracted; absolute σ²_B alongside |
+| **Mean task success** | how often the model is right | graded accuracy; the FI_in(q,θ) curve |
+| **Formulation dependence** | how much of success is decided by *which formulation* | **ρ_F**, a one-way ICC with decoding noise subtracted; absolute σ²_B alongside |
 | **Output dispersion** | how scattered the answers are | **H_sem** (the sole representative) |
 | **Specificity** — *content variable*, manipulated | how narrowly the question fixes what is asked | **FI_spec** = log₂(m₀/m_valid), from annotations only |
 | **Width** — *form variable*, manipulated | how broadly the wording varies at fixed meaning | generator configuration: narrow / production / wide (+ swap arm) |
 
-Terminology that is **retired** and must not come back: "three axes + one
-dial" and the word *dial* generally (say *the specificity intervention* /
-*the width intervention*); FI_spec as a fourth measurement (it quantifies the
-setting of a manipulated variable, and its bit scale is **not** a validated
-dose); "reliability probe" (the four probes are **underspecification,
-dispersion, fragility, correctness**); "vagueness" for the underspecification
-probe or its holdout. A **cell** is one question at one specificity level for
-one model.
+Terminology that is **retired** and must not come back: "competence" and
+"formulation sensitivity" (now *mean task success* and *formulation
+dependence*); "axis"/"axes", "operational targets" or "latent axes" for the
+trio (they are *factors*); "indices" and "candidate metrics" for the fourteen
+published and constructed quantities (they are *metrics*; the seven
+clustering-derived ones are the *dispersion metrics*); "three axes + one dial"
+and the word *dial* generally (say *the
+specificity intervention* / *the width intervention*); "stress test" for the
+interventions; "reference class" outside the appendix estimand (say *paraphrase
+universe*); FI_spec as a fourth measurement (it quantifies the setting of a
+manipulated variable, and its bit scale is **not** a validated dose);
+"reliability probe" (the four probes are **underspecification, dispersion,
+fragility, correctness**); "vagueness" for the underspecification probe or its
+holdout. A **cell** is one question at one specificity level for one model; a
+member of a paraphrase universe is a *formulation*.
+
+**How the representatives are justified (since 2026-09-16, advisor feedback):**
+the component analysis must not contain the metric it justifies. Stage 1
+decomposes the **ten published metrics** only (five dispersion metrics; accuracy
+plus the best- and worst-formulation accuracies of Sclar/Mizrahi/Cao; spread;
+ρ_u): Horn retains **two** components (dispersion, success), and formulation
+dependence is the factor no published metric carries (spread and ρ_u correlate
+only +.42). Held out, ρ_F projects +.89 on the published dependence component
+and ≤ +.10 elsewhere. Stage 2 adds ρ_F: Horn retains **three** (1.61 vs 1.29,
+stable over n and seeds). The old fourteen-metric "Horn retains three" in
+`factor_audit.md` rested on the accuracy aliases AUFI and FI premium and is
+superseded; the six constructed metrics (ρ_F, AUFI, ΔFI premium, FI_out^fixed,
+Var[FI_out], ESS_in) appear in the appendix only. Source:
+`data/metric_selection.md`, FORKING_PATHS fork 14.
 
 ## Where truth lives (in order of authority)
 
-1. **The submitted paper** (`../SensitivityFunctionalInformationPaper`, branch
-   `main`) — every number in it was traced to an artifact in the 2026-08-27
-   audit.
+1. **The paper** (`../DSI-Seminar-Prompt-Sensitivity-FI---Paper`, GitHub
+   `ThanosDrossos/DSI-Seminar-Prompt-Sensitivity-FI---Paper`, Overleaf-synced on
+   `main`, which holds the ICLR version since `feat/iclr-restructure` was
+   merged on 2026-09-04). The older
+   `../SensitivityFunctionalInformationPaper` clone is the seminar submission of
+   2026-08-26 and is frozen. Every number in the seminar paper was traced to an
+   artifact in the 2026-08-27 audit; the ICLR version inherits those numbers.
 2. `data/stats_hygiene.md` (+ `.json`) — the declared 12-test primary family.
-   Then `data/metric_reductions.md`, `width_dial_analysis.md`,
+   Then `data/metric_selection.md` (+ `.json`; the two-stage metric analysis that
+   selects the three representatives, since 2026-09-16), `metric_reductions.md`,
+   `width_dial_analysis.md`,
    `probe_eval_hardened.md` + `probe_eval_ood.json`, `rho_f_recovery_sim.md`,
    `rho_f_construct_validity.md`, `independence_{union,target}.md`,
    `evidence_coverage_audit.md`, `mechanical_null.md`,
@@ -63,11 +94,11 @@ About 360 quantitative claims were traced to artifacts and adversarially
 re-verified; 13 corrections landed in the paper. Older documents and drafts
 still carry the superseded versions, so watch for these:
 
-- The **|ρ| ≤ 0.14 cross-axis bound applies only to ρ_F** against the other two
-  axes, under the hierarchical estimator. Competence and output dispersion are
-  clearly negatively associated within strata (Spearman −0.34 to −0.72, union
-  gold). The old blanket "no cross-axis association exceeds 0.14 / equivalence
-  bounds only to 0.34" claim is **wrong**.
+- The **|ρ| ≤ 0.14 cross-factor bound applies only to ρ_F** against the other
+  two factors, under the hierarchical estimator. Mean task success and output
+  dispersion are clearly negatively associated within strata (Spearman −0.34 to
+  −0.72, union gold). The old blanket "no cross-factor association exceeds 0.14
+  / equivalence bounds only to 0.34" claim is **wrong**.
 - The grid is 900 cells but **89,730 scored responses**, not 90,000: one
   universe retains a single paraphrase, so it is "up to ten paraphrases".
 - The **Qwen > Mistral > Llama** ordering holds under both gold sets and both
@@ -77,7 +108,7 @@ still carry the superseded versions, so watch for these:
 - ρ_F specificity null: p ≥ .41 union gold, p ≥ .22 target-gold replication;
   Rubin bracket **±0.08**; a true change of 0.20 is **more than half** the
   between-model range, not larger than all of it.
-- Width arm: competence CIs within **4** accuracy points (max +0.033).
+- Width arm: mean task success CIs within **4** accuracy points (max +0.033).
 - Spread beats or matches ρ_F at predicting rephrasing payoff in **2 of 3**
   models (k=20) and in all three on disjoint paraphrase sets — the disjoint
   check does **not** reproduce the same per-model ordering.
@@ -100,9 +131,10 @@ still carry the superseded versions, so watch for these:
   new model calls is cluster work; everything else re-runs locally.
 - Analysis scripts have no Makefile targets; invoke modules directly.
 - Paper figures: `uv run python -m prompt_sensitivity.scripts.make_paper_figures
-  --out ../SensitivityFunctionalInformationPaper/1_Figures`. The script reads
-  committed artifacts only — there are no hardcoded numbers, so never
-  hand-patch a figure.
+  --out ../DSI-Seminar-Prompt-Sensitivity-FI---Paper/1_Figures`. The script reads
+  committed artifacts only (fig2 reads `data/metric_selection.json`) — there are
+  no hardcoded numbers, so never hand-patch a figure. Panel labels carry the factor names, so a rename means
+  editing the script and regenerating.
 - `data/*.md` artifacts are **script-generated**: fix the generating script,
   not the markdown, or the next run reverts the edit.
 - `cluster/runbooks/*` contain the bwUniCluster username — scrub before making
@@ -110,8 +142,8 @@ still carry the superseded versions, so watch for these:
 
 ## The paper repo and Overleaf
 
-`../SensitivityFunctionalInformationPaper` syncs with Overleaf on **`main`**
-(no `master`). **Always `git pull` before editing the tex** — Thanos edits in
+`../DSI-Seminar-Prompt-Sensitivity-FI---Paper` syncs with Overleaf on
+**`main`** (no `master`). **Always `git pull` before editing the tex** — Thanos edits in
 Overleaf between sessions. When both sides change, Overleaf pushes an
 `overleaf-YYYY-MM-DD-HHMM` branch and asks for a manual merge: diff it against
 its merge base, merge keeping the newer revision plus any genuine Overleaf
@@ -126,11 +158,14 @@ reject. **Abstract 2026-09-18 AoE, paper 2026-09-25 AoE.** Double-blind; the
 AI-use statement is mandatory and excluded from the limit, as are the optional
 reproducibility and ethics statements.
 
-The current build is the **non-anonymous seminar version**: 24 pages total with
-content on pp. 1–13. Reaching submission needs ~4 pages of content cut,
-`\iclrfinalcopy` commented out (which restores anonymity and line numbers),
-removal of the author block, matriculation number, seminar header, advisor and
-examiner names and submission date, and an anonymized repo link in the
-reproducibility statement. The cut plan in
-`docs/reviews/REVIEW_2026-08-16_Consolidated_Action_Plan.md` §6 predates the
-two-variable reframe — treat it as input, not as the plan.
+The ICLR version (on `main` since 2026-09-04) is anonymous, nine main-text
+pages, built with `tectonic main.tex`. Thanos's first review round landed in
+Overleaf on 2026-09-06 to 09-08; its German `%` comments in `main_body.tex`
+are the open work list (intro motivation, Section 3 roadmap, probe storyline,
+results table, shorter abstract, wider discussion with limitations and future
+work merged). Still open before submission: the anonymized repository URL in
+the reproducibility statement (marked `% TODO(author)` in `main.tex`), the
+title and abstract still saying "Indices"/"Three-Axis"/"axes", and the
+author's sign-off. The seminar build (`../SensitivityFunctionalInformationPaper`)
+is 24 pages and non-anonymous; the cut plan in
+`docs/reviews/REVIEW_2026-08-16_Consolidated_Action_Plan.md` §6 is history.

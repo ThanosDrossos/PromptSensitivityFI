@@ -1,0 +1,4 @@
+interface:
+  display_name: "Improve ICLR Introduction"
+  short_description: "Sharpen an ICLR introduction and contributions"
+  default_prompt: "Use $improve-iclr-introduction to strengthen this introduction's evidence-linked contributions."

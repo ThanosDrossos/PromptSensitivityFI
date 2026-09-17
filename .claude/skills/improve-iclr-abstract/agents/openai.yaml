@@ -1,0 +1,4 @@
+interface:
+  display_name: "Improve ICLR Abstract"
+  short_description: "Strengthen an ICLR abstract's scientific case"
+  default_prompt: "Use $improve-iclr-abstract to revise this abstract while preserving supported claims."

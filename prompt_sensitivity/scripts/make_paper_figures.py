@@ -6,7 +6,8 @@ hand-copied literals, so a regenerated artifact regenerates the figures:
   data/union_gold_*.parquet + data/specificity_v3_*.parquet
     + data/rho_f_hier_union_*.parquet -- per-model level means (Fig. 1a-c)
   data/width_dial_cells.parquet  -- the generator-width arms (Fig. 1d)
-  figures/v3_metric_corr.npy     -- 14-metric within-stratum Spearman (Fig. 2)
+  data/metric_selection.json     -- within-stratum Spearman matrix of the ten
+                                    published metrics and rho_F (Fig. 2)
   data/probe_eval_hardened_*.parquet + data/probe_eval_ood.json (Fig. 3)
 
 Usage:  uv run python -m prompt_sensitivity.scripts.make_paper_figures [--out DIR]
@@ -60,7 +61,7 @@ def load_levels() -> dict[str, dict[str, dict[int, tuple[float, float, float]]]]
     """Fig. 1a-c inputs: per-model level means from the committed parquets.
 
     accuracy: union_gold_*.parquet (f_graded_union_mean); dispersion:
-    specificity_v3_*.parquet (h_sem_mean); formulation sensitivity:
+    specificity_v3_*.parquet (h_sem_mean); formulation dependence:
     rho_f_hier_union_*.parquet (rho_f_hier). Values match the level means
     behind data/stats_hygiene.md; the paired significance tests live there.
     """
@@ -139,9 +140,9 @@ def _style() -> None:
 
 
 def fig1(out: Path) -> None:
-    """Four panels, one visual grammar: each axis's level under its intervention.
+    """Four panels, one visual grammar: each factor's level under its intervention.
 
-    (a)-(c) plot the ambiguous and disambiguated LEVEL of each axis per model,
+    (a)-(c) plot the ambiguous and disambiguated LEVEL of each factor per model,
     so the reader sees what moved and what stayed flat; (d) extends the same
     grammar to the three generator-width arms. Whiskers are question-clustered
     bootstrap 95% CIs of the level means; the paired significance tests live
@@ -152,9 +153,13 @@ def fig1(out: Path) -> None:
     fig, axes = plt.subplots(1, 4, figsize=(7.0, 2.05))
 
     panels = [
-        ("accuracy", "(a) Competence", "accuracy (union gold)"),
+        ("accuracy", "(a) Mean task success", "accuracy (union gold)"),
         ("hsem", "(b) Output dispersion", "$H_{sem}$ (bits)"),
-        ("rhof", "(c) Formulation sens.", "$\\rho_F$ (hierarchical)"),
+        (
+            "rhof",
+            "(c) Formulation dependence,\nspecificity intervention",
+            "$\\rho_F$ (hierarchical)",
+        ),
     ]
     for ax, (key, title, ylab) in zip(axes[:3], panels, strict=False):
         for m in MODELS:
@@ -177,7 +182,7 @@ def fig1(out: Path) -> None:
         ax.set_xticks([0, 1])
         ax.set_xticklabels(["ambig.", "disamb."])
         ax.set_xlim(-0.35, 1.35)
-        ax.set_title(title, loc="left", fontweight="bold")
+        ax.set_title(title, loc="left", fontweight="bold", fontsize=7.3 if "\n" in title else None)
         ax.set_ylabel(ylab)
     # one shared model legend above the row, clear of all data
     handles, labels = axes[0].get_legend_handles_labels()
@@ -211,7 +216,12 @@ def fig1(out: Path) -> None:
     ax.set_xticks(range(3))
     ax.set_xticklabels(["narrow", "prod.", "wide"])
     ax.set_xlim(-0.35, 2.35)
-    ax.set_title("(d) Formulation sens.,\nwidth intervention", loc="left", fontweight="bold", fontsize=7.6)
+    ax.set_title(
+        "(d) Formulation dependence,\nwidth intervention",
+        loc="left",
+        fontweight="bold",
+        fontsize=7.3,
+    )
     ax.set_ylabel("$\\rho_F$ (MoM, paired cells)")
     ax.legend(
         frameon=False,
@@ -230,67 +240,79 @@ def fig1(out: Path) -> None:
 
 
 def fig2(out: Path) -> None:
-    """The 14 candidate metrics, ordered by axis: three blocks, not fourteen."""
-    corr = np.load(FIGS / "v3_metric_corr.npy")
-    meta = json.loads((FIGS / "v3_metric_corr_labels.json").read_text())
-    labels = meta["labels"]
+    """The ten published metrics ordered by factor, with rho_F appended as a held-out row.
 
-    # order: dispersion family, competence family, sensitivity family
+    Group membership and the matrix come from data/metric_selection.json, the
+    artifact behind the two-stage component analysis: rho_F is held out of the
+    published-only decomposition and projected afterwards, so it is drawn after
+    a dashed divider rather than inside a block.
+    """
+    art = json.loads((DATA / "metric_selection.json").read_text(encoding="utf-8"))
+    labels = art["matrix"]["labels"]
+    corr = np.asarray(art["matrix"]["values"], dtype=float)
+    family_title = {
+        "dispersion": "Output\ndispersion",
+        "success": "Mean task\nsuccess",
+        "dependence": "Formulation\ndependence",
+    }
     groups = [
-        (
-            "Dispersion",
-            [
-                "H_sem",
-                "S_tau (Errica)",
-                "TVD-sens  [M4]",
-                "|A_q| observed",
-                "variation ratio",
-                "Var[FI_out]  [M4]",
-                "FI_out_fixed",
-            ],
-        ),
-        ("Competence", ["accuracy", "AUFI (graded)", "FI premium  [M2]"]),
-        ("Formulation\nsensitivity", ["rho_F  [M1]", "rho_u (Cox)", "spread (Cao)", "ESS_in"]),
+        (family_title[fam], [m["label"] for m in art["published"] if m["family"] == fam])
+        for fam in ("dispersion", "success", "dependence")
     ]
+    rho_f = next(m["label"] for m in art["constructed"] if m["column"] == "rho_f")
+    groups.append(("held out", [rho_f]))
     order, bounds, gnames = [], [], []
     for gname, members in groups:
         gnames.append(gname)
-        for mlab in members:
-            order.append(labels.index(mlab))
+        order.extend(labels.index(m) for m in members)
         bounds.append(len(order))
-    C = corr[np.ix_(order, order)]
-    # display names: match the paper's notation instead of code identifiers
+    C = np.abs(corr[np.ix_(order, order)])
+    # display names: the paper's notation instead of code identifiers
     pretty = {
         "H_sem": "$H_{sem}$",
         "S_tau (Errica)": "$S_\\tau$ (Errica)",
         "TVD-sens  [M4]": "TVD consistency",
         "|A_q| observed": "$|\\mathcal{A}_q|$ observed",
         "variation ratio": "variation ratio",
-        "Var[FI_out]  [M4]": "Var[$FI_{out}$]",
-        "FI_out_fixed": "$FI_{out}^{fixed}$",
-        "accuracy": "accuracy",
-        "AUFI (graded)": "AUFI (graded)",
-        "FI premium  [M2]": "$\\Delta$FI premium",
-        "rho_F  [M1]": "$\\rho_F$",
-        "rho_u (Cox)": "$\\rho_u$ (Cox)",
+        "accuracy": "accuracy $\\bar F$",
+        "F_max (best formulation)": "$F_{\\max}$ (best formulation)",
+        "F_min (worst formulation)": "$F_{\\min}$ (worst formulation)",
         "spread (Cao)": "spread (Cao)",
-        "ESS_in": "$ESS_{in}$",
+        "rho_u (Cox)": "$\\rho_u$ (Cox)",
+        rho_f: "$\\rho_F$ (this work)",
     }
     disp = [pretty[labels[i]] for i in order]
+    n = len(order)
 
-    fig, ax = plt.subplots(figsize=(5.4, 3.9))
-    im = ax.imshow(np.abs(C), cmap="Blues", vmin=0, vmax=1)
-    ax.set_xticks(range(len(order)))
-    ax.set_yticks(range(len(order)))
+    fig, ax = plt.subplots(figsize=(5.4, 4.15))
+    im = ax.imshow(C, cmap="Blues", vmin=0, vmax=1)
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                continue
+            ax.text(
+                j,
+                i,
+                f"{C[i, j]:.2f}".lstrip("0"),
+                ha="center",
+                va="center",
+                fontsize=5.4,
+                color="white" if C[i, j] > 0.6 else "#1a1a1a",
+            )
+    ax.set_xticks(range(n))
+    ax.set_yticks(range(n))
     ax.set_xticklabels(disp, rotation=55, ha="right")
     ax.set_yticklabels(disp)
-    for b in bounds[:-1]:
+    for b in bounds[:-2]:  # solid dividers between the published families
         ax.axhline(b - 0.5, color="k", lw=1.3)
         ax.axvline(b - 0.5, color="k", lw=1.3)
+    held = bounds[-2] - 0.5  # dashed divider before the held-out metric
+    ax.axhline(held, color="k", lw=1.1, ls=(0, (3, 2)))
+    ax.axvline(held, color="k", lw=1.1, ls=(0, (3, 2)))
     start = 0
     for gname, b in zip(gnames, bounds, strict=True):
         ax.text(
-            len(order) - 0.25,
+            n - 0.25,
             (start + b - 1) / 2,
             gname,
             va="center",
@@ -303,7 +325,12 @@ def fig2(out: Path) -> None:
     cb = fig.colorbar(im, ax=ax, fraction=0.041, pad=0.30)
     cb.set_label("|Spearman| (mean within stratum)", fontsize=7.5)
     cb.ax.tick_params(labelsize=7)
-    ax.set_title("Candidate metrics group into three blocks", loc="left", fontweight="bold", pad=6)
+    ax.set_title(
+        "Published metrics by factor, and where $\\rho_F$ falls",
+        loc="left",
+        fontweight="bold",
+        pad=6,
+    )
     fig.tight_layout()
     fig.savefig(out / "fig2_metric_structure.pdf", bbox_inches="tight")
     plt.close(fig)
