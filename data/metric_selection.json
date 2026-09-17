@@ -1,0 +1,1037 @@
+{
+ "published": [
+  {
+   "column": "h_sem_mean",
+   "label": "H_sem",
+   "family": "dispersion",
+   "source": "Kuhn et al. 2023; Farquhar et al. 2024"
+  },
+  {
+   "column": "s_tau_mean",
+   "label": "S_tau (Errica)",
+   "family": "dispersion",
+   "source": "Errica et al. 2025"
+  },
+  {
+   "column": "tvd_sens",
+   "label": "TVD-sens  [M4]",
+   "family": "dispersion",
+   "source": "Errica et al. 2025"
+  },
+  {
+   "column": "a_q",
+   "label": "|A_q| observed",
+   "family": "dispersion",
+   "source": "Kuhn et al. 2023 (number of semantic sets)"
+  },
+  {
+   "column": "variation_ratio",
+   "label": "variation ratio",
+   "family": "dispersion",
+   "source": "Lu et al. 2024"
+  },
+  {
+   "column": "f_graded_mean",
+   "label": "accuracy",
+   "family": "success",
+   "source": "graded accuracy, mean over formulations"
+  },
+  {
+   "column": "f_max",
+   "label": "F_max (best formulation)",
+   "family": "success",
+   "source": "Sclar et al. 2024; Mizrahi et al. 2024"
+  },
+  {
+   "column": "f_min",
+   "label": "F_min (worst formulation)",
+   "family": "success",
+   "source": "Cao et al. 2024; Sclar et al. 2024"
+  },
+  {
+   "column": "spread",
+   "label": "spread (Cao)",
+   "family": "dependence",
+   "source": "Sclar et al. 2024; Cao et al. 2024"
+  },
+  {
+   "column": "rho_u",
+   "label": "rho_u (Cox)",
+   "family": "dependence",
+   "source": "Cox et al. 2025"
+  }
+ ],
+ "constructed": [
+  {
+   "column": "rho_f",
+   "label": "rho_F  [M1]",
+   "family": "dependence"
+  },
+  {
+   "column": "aufi_in_graded",
+   "label": "AUFI (graded)",
+   "family": "success"
+  },
+  {
+   "column": "fi_premium",
+   "label": "FI premium  [M2]",
+   "family": "success"
+  },
+  {
+   "column": "fi_out_fixed",
+   "label": "FI_out_fixed",
+   "family": "dispersion"
+  },
+  {
+   "column": "fi_out_var",
+   "label": "Var[FI_out]  [M4]",
+   "family": "dispersion"
+  },
+  {
+   "column": "ess_in",
+   "label": "ESS_in",
+   "family": "dependence"
+  }
+ ],
+ "matrix": {
+  "labels": [
+   "H_sem",
+   "S_tau (Errica)",
+   "TVD-sens  [M4]",
+   "|A_q| observed",
+   "variation ratio",
+   "accuracy",
+   "F_max (best formulation)",
+   "F_min (worst formulation)",
+   "spread (Cao)",
+   "rho_u (Cox)",
+   "rho_F  [M1]",
+   "AUFI (graded)",
+   "FI premium  [M2]",
+   "FI_out_fixed",
+   "Var[FI_out]  [M4]",
+   "ESS_in"
+  ],
+  "columns": [
+   "h_sem_mean",
+   "s_tau_mean",
+   "tvd_sens",
+   "a_q",
+   "variation_ratio",
+   "f_graded_mean",
+   "f_max",
+   "f_min",
+   "spread",
+   "rho_u",
+   "rho_f",
+   "aufi_in_graded",
+   "fi_premium",
+   "fi_out_fixed",
+   "fi_out_var",
+   "ess_in"
+  ],
+  "values": [
+   [
+    1.0,
+    0.9368,
+    0.9136,
+    0.907,
+    0.7541,
+    -0.2945,
+    -0.202,
+    -0.4268,
+    0.255,
+    0.3091,
+    0.0332,
+    0.2942,
+    0.1398,
+    -0.624,
+    0.7009,
+    0.0496
+   ],
+   [
+    0.9368,
+    1.0,
+    0.8415,
+    0.7314,
+    0.7501,
+    -0.2567,
+    -0.168,
+    -0.3723,
+    0.2424,
+    0.273,
+    0.0457,
+    0.257,
+    0.1713,
+    -0.5856,
+    0.5738,
+    0.0212
+   ],
+   [
+    0.9136,
+    0.8415,
+    1.0,
+    0.861,
+    0.8748,
+    -0.2634,
+    -0.1372,
+    -0.4773,
+    0.3573,
+    0.5482,
+    0.3287,
+    0.2614,
+    0.1612,
+    -0.5751,
+    0.722,
+    0.1403
+   ],
+   [
+    0.907,
+    0.7314,
+    0.861,
+    1.0,
+    0.6282,
+    -0.2963,
+    -0.203,
+    -0.4382,
+    0.2375,
+    0.3474,
+    0.0223,
+    0.2955,
+    0.0962,
+    -0.5687,
+    0.7594,
+    0.0865
+   ],
+   [
+    0.7541,
+    0.7501,
+    0.8748,
+    0.6282,
+    1.0,
+    -0.1803,
+    -0.0754,
+    -0.3803,
+    0.3784,
+    0.5389,
+    0.3584,
+    0.1777,
+    0.1476,
+    -0.4969,
+    0.5047,
+    0.1379
+   ],
+   [
+    -0.2945,
+    -0.2567,
+    -0.2634,
+    -0.2963,
+    -0.1803,
+    1.0,
+    0.9559,
+    0.7983,
+    0.2724,
+    -0.0935,
+    0.0806,
+    -0.9993,
+    0.4997,
+    0.092,
+    -0.2253,
+    -0.002
+   ],
+   [
+    -0.202,
+    -0.168,
+    -0.1372,
+    -0.203,
+    -0.0754,
+    0.9559,
+    1.0,
+    0.6843,
+    0.4184,
+    0.045,
+    0.3877,
+    -0.9547,
+    0.6257,
+    0.0528,
+    -0.0991,
+    0.0248
+   ],
+   [
+    -0.4268,
+    -0.3723,
+    -0.4773,
+    -0.4382,
+    -0.3803,
+    0.7983,
+    0.6843,
+    1.0,
+    -0.1303,
+    -0.358,
+    -0.3411,
+    -0.7942,
+    0.2799,
+    0.194,
+    -0.3945,
+    -0.0777
+   ],
+   [
+    0.255,
+    0.2424,
+    0.3573,
+    0.2375,
+    0.3784,
+    0.2724,
+    0.4184,
+    -0.1303,
+    1.0,
+    0.4184,
+    0.6714,
+    -0.2719,
+    0.6026,
+    -0.1909,
+    0.292,
+    0.0953
+   ],
+   [
+    0.3091,
+    0.273,
+    0.5482,
+    0.3474,
+    0.5389,
+    -0.0935,
+    0.045,
+    -0.358,
+    0.4184,
+    1.0,
+    0.6713,
+    0.0904,
+    0.1747,
+    -0.1603,
+    0.5136,
+    0.2761
+   ],
+   [
+    0.0332,
+    0.0457,
+    0.3287,
+    0.0223,
+    0.3584,
+    0.0806,
+    0.3877,
+    -0.3411,
+    0.6714,
+    0.6713,
+    1.0,
+    -0.0797,
+    0.2974,
+    -0.0697,
+    0.2713,
+    0.1733
+   ],
+   [
+    0.2942,
+    0.257,
+    0.2614,
+    0.2955,
+    0.1777,
+    -0.9993,
+    -0.9547,
+    -0.7942,
+    -0.2719,
+    0.0904,
+    -0.0797,
+    1.0,
+    -0.4961,
+    -0.091,
+    0.2228,
+    -0.0005
+   ],
+   [
+    0.1398,
+    0.1713,
+    0.1612,
+    0.0962,
+    0.1476,
+    0.4997,
+    0.6257,
+    0.2799,
+    0.6026,
+    0.1747,
+    0.2974,
+    -0.4961,
+    1.0,
+    -0.0993,
+    0.1739,
+    0.0377
+   ],
+   [
+    -0.624,
+    -0.5856,
+    -0.5751,
+    -0.5687,
+    -0.4969,
+    0.092,
+    0.0528,
+    0.194,
+    -0.1909,
+    -0.1603,
+    -0.0697,
+    -0.091,
+    -0.0993,
+    1.0,
+    -0.3832,
+    -0.0342
+   ],
+   [
+    0.7009,
+    0.5738,
+    0.722,
+    0.7594,
+    0.5047,
+    -0.2253,
+    -0.0991,
+    -0.3945,
+    0.292,
+    0.5136,
+    0.2713,
+    0.2228,
+    0.1739,
+    -0.3832,
+    1.0,
+    0.1226
+   ],
+   [
+    0.0496,
+    0.0212,
+    0.1403,
+    0.0865,
+    0.1379,
+    -0.002,
+    0.0248,
+    -0.0777,
+    0.0953,
+    0.2761,
+    0.1733,
+    -0.0005,
+    0.0377,
+    -0.0342,
+    0.1226,
+    1.0
+   ]
+  ]
+ },
+ "n_obs": 150,
+ "stage1_two_components": {
+  "eigenvalues": [
+   5.1444,
+   2.4652,
+   1.0886,
+   0.5493,
+   0.3527,
+   0.1831,
+   0.1442,
+   0.0381,
+   0.0247,
+   0.0095
+  ],
+  "horn95": [
+   1.5502,
+   1.3819,
+   1.2638,
+   1.172,
+   1.0752,
+   1.0037,
+   0.9282,
+   0.8553,
+   0.7843,
+   0.7029
+  ],
+  "n_retained": 2,
+  "explained_share": 0.761,
+  "component_families": [
+   "dispersion",
+   "success"
+  ],
+  "loadings": {
+   "H_sem": [
+    0.915,
+    -0.19
+   ],
+   "S_tau (Errica)": [
+    0.863,
+    -0.153
+   ],
+   "TVD-sens  [M4]": [
+    0.968,
+    -0.119
+   ],
+   "|A_q| observed": [
+    0.846,
+    -0.202
+   ],
+   "variation ratio": [
+    0.884,
+    -0.027
+   ],
+   "accuracy": [
+    -0.17,
+    0.96
+   ],
+   "F_max (best formulation)": [
+    -0.029,
+    0.978
+   ],
+   "F_min (worst formulation)": [
+    -0.444,
+    0.722
+   ],
+   "spread (Cao)": [
+    0.512,
+    0.484
+   ],
+   "rho_u (Cox)": [
+    0.59,
+    0.079
+   ]
+  },
+  "supplementary": {
+   "rho_F  [M1]": [
+    0.38,
+    0.304
+   ],
+   "AUFI (graded)": [
+    0.168,
+    -0.959
+   ],
+   "FI premium  [M2]": [
+    0.279,
+    0.63
+   ],
+   "FI_out_fixed": [
+    -0.581,
+    0.035
+   ],
+   "Var[FI_out]  [M4]": [
+    0.722,
+    -0.105
+   ],
+   "ESS_in": [
+    0.138,
+    0.036
+   ]
+  }
+ },
+ "stage1_three_components": {
+  "eigenvalues": [
+   5.1444,
+   2.4652,
+   1.0886,
+   0.5493,
+   0.3527,
+   0.1831,
+   0.1442,
+   0.0381,
+   0.0247,
+   0.0095
+  ],
+  "horn95": [
+   1.5502,
+   1.3819,
+   1.2638,
+   1.172,
+   1.0752,
+   1.0037,
+   0.9282,
+   0.8553,
+   0.7843,
+   0.7029
+  ],
+  "n_retained": 2,
+  "explained_share": 0.8698,
+  "component_families": [
+   "dispersion",
+   "success",
+   "dependence"
+  ],
+  "loadings": {
+   "H_sem": [
+    0.975,
+    -0.15,
+    0.074
+   ],
+   "S_tau (Errica)": [
+    0.931,
+    -0.109,
+    0.05
+   ],
+   "TVD-sens  [M4]": [
+    0.905,
+    -0.146,
+    0.341
+   ],
+   "|A_q| observed": [
+    0.874,
+    -0.18,
+    0.119
+   ],
+   "variation ratio": [
+    0.782,
+    -0.076,
+    0.406
+   ],
+   "accuracy": [
+    -0.154,
+    0.972,
+    0.034
+   ],
+   "F_max (best formulation)": [
+    -0.077,
+    0.956,
+    0.196
+   ],
+   "F_min (worst formulation)": [
+    -0.273,
+    0.817,
+    -0.367
+   ],
+   "spread (Cao)": [
+    0.225,
+    0.332,
+    0.744
+   ],
+   "rho_u (Cox)": [
+    0.244,
+    -0.107,
+    0.836
+   ]
+  },
+  "supplementary": {
+   "rho_F  [M1]": [
+    -0.006,
+    0.096,
+    0.891
+   ],
+   "AUFI (graded)": [
+    0.153,
+    -0.97,
+    -0.037
+   ],
+   "FI premium  [M2]": [
+    0.183,
+    0.583,
+    0.324
+   ],
+   "FI_out_fixed": [
+    -0.632,
+    0.002,
+    -0.031
+   ],
+   "Var[FI_out]  [M4]": [
+    0.644,
+    -0.142,
+    0.314
+   ],
+   "ESS_in": [
+    0.04,
+    -0.017,
+    0.232
+   ]
+  }
+ },
+ "stage1_counts_over_n_and_seeds": [
+  2
+ ],
+ "stage2_three_components": {
+  "eigenvalues": [
+   5.232,
+   2.7445,
+   1.6121,
+   0.551,
+   0.3601,
+   0.2415,
+   0.1831,
+   0.0819,
+   0.0328,
+   0.0097,
+   0.0
+  ],
+  "horn95": [
+   1.5904,
+   1.4013,
+   1.2853,
+   1.1936,
+   1.1151,
+   1.0426,
+   0.9637,
+   0.8932,
+   0.8311,
+   0.7531,
+   0.6781
+  ],
+  "n_retained": 3,
+  "explained_share": 0.8679,
+  "component_families": [
+   "dispersion",
+   "success",
+   "dependence"
+  ],
+  "loadings": {
+   "H_sem": [
+    0.978,
+    -0.147,
+    0.019
+   ],
+   "S_tau (Errica)": [
+    0.927,
+    -0.107,
+    0.015
+   ],
+   "TVD-sens  [M4]": [
+    0.916,
+    -0.153,
+    0.308
+   ],
+   "|A_q| observed": [
+    0.888,
+    -0.176,
+    0.041
+   ],
+   "variation ratio": [
+    0.802,
+    -0.084,
+    0.365
+   ],
+   "accuracy": [
+    -0.15,
+    0.972,
+    0.05
+   ],
+   "F_max (best formulation)": [
+    -0.085,
+    0.944,
+    0.28
+   ],
+   "F_min (worst formulation)": [
+    -0.282,
+    0.83,
+    -0.368
+   ],
+   "spread (Cao)": [
+    0.268,
+    0.314,
+    0.719
+   ],
+   "rho_u (Cox)": [
+    0.303,
+    -0.122,
+    0.767
+   ],
+   "rho_F  [M1]": [
+    0.017,
+    0.062,
+    0.969
+   ]
+  },
+  "supplementary": {}
+ },
+ "stage2_counts_over_n_and_seeds": [
+  3
+ ],
+ "stage2_third_threshold_by_n": [
+  {
+   "n": 56,
+   "horn95_3": 1.4705
+  },
+  {
+   "n": 84,
+   "horn95_3": 1.3959
+  },
+  {
+   "n": 136,
+   "horn95_3": 1.319
+  },
+  {
+   "n": 150,
+   "horn95_3": 1.2853
+  }
+ ],
+ "max_loading_shift_stage1_to_stage2": 0.0842,
+ "cross_check_mean": {
+  "rho_f": [
+   0.005,
+   0.033,
+   0.772
+  ],
+  "spread": [
+   0.237,
+   0.287,
+   0.677
+  ],
+  "rho_u": [
+   0.264,
+   -0.125,
+   0.856
+  ]
+ },
+ "cross_check_rows": [
+  {
+   "stratum": "qwen_2_5_7b L0",
+   "metric": "rho_f",
+   "n": 56,
+   "C1": -0.089,
+   "C2": 0.077,
+   "C3": 0.853
+  },
+  {
+   "stratum": "qwen_2_5_7b L0",
+   "metric": "spread",
+   "n": 150,
+   "C1": 0.258,
+   "C2": 0.42,
+   "C3": 0.68
+  },
+  {
+   "stratum": "qwen_2_5_7b L0",
+   "metric": "rho_u",
+   "n": 150,
+   "C1": 0.42,
+   "C2": -0.036,
+   "C3": 0.822
+  },
+  {
+   "stratum": "qwen_2_5_7b L1",
+   "metric": "rho_f",
+   "n": 80,
+   "C1": -0.02,
+   "C2": -0.081,
+   "C3": 0.913
+  },
+  {
+   "stratum": "qwen_2_5_7b L1",
+   "metric": "spread",
+   "n": 150,
+   "C1": 0.506,
+   "C2": 0.04,
+   "C3": 0.788
+  },
+  {
+   "stratum": "qwen_2_5_7b L1",
+   "metric": "rho_u",
+   "n": 150,
+   "C1": 0.583,
+   "C2": -0.23,
+   "C3": 0.869
+  },
+  {
+   "stratum": "llama_3_1_8b L0",
+   "metric": "rho_f",
+   "n": 81,
+   "C1": -0.047,
+   "C2": 0.214,
+   "C3": 0.54
+  },
+  {
+   "stratum": "llama_3_1_8b L0",
+   "metric": "spread",
+   "n": 150,
+   "C1": 0.208,
+   "C2": 0.501,
+   "C3": 0.539
+  },
+  {
+   "stratum": "llama_3_1_8b L0",
+   "metric": "rho_u",
+   "n": 150,
+   "C1": -0.056,
+   "C2": -0.116,
+   "C3": 0.83
+  },
+  {
+   "stratum": "llama_3_1_8b L1",
+   "metric": "rho_f",
+   "n": 117,
+   "C1": 0.006,
+   "C2": 0.093,
+   "C3": 0.734
+  },
+  {
+   "stratum": "llama_3_1_8b L1",
+   "metric": "spread",
+   "n": 150,
+   "C1": 0.121,
+   "C2": 0.193,
+   "C3": 0.719
+  },
+  {
+   "stratum": "llama_3_1_8b L1",
+   "metric": "rho_u",
+   "n": 150,
+   "C1": 0.141,
+   "C2": -0.106,
+   "C3": 0.879
+  },
+  {
+   "stratum": "mistral_7b_v03 L0",
+   "metric": "rho_f",
+   "n": 70,
+   "C1": 0.071,
+   "C2": 0.081,
+   "C3": 0.753
+  },
+  {
+   "stratum": "mistral_7b_v03 L0",
+   "metric": "spread",
+   "n": 150,
+   "C1": 0.163,
+   "C2": 0.467,
+   "C3": 0.601
+  },
+  {
+   "stratum": "mistral_7b_v03 L0",
+   "metric": "rho_u",
+   "n": 150,
+   "C1": 0.15,
+   "C2": -0.018,
+   "C3": 0.843
+  },
+  {
+   "stratum": "mistral_7b_v03 L1",
+   "metric": "rho_f",
+   "n": 102,
+   "C1": 0.106,
+   "C2": -0.187,
+   "C3": 0.839
+  },
+  {
+   "stratum": "mistral_7b_v03 L1",
+   "metric": "spread",
+   "n": 150,
+   "C1": 0.168,
+   "C2": 0.101,
+   "C3": 0.736
+  },
+  {
+   "stratum": "mistral_7b_v03 L1",
+   "metric": "rho_u",
+   "n": 150,
+   "C1": 0.344,
+   "C2": -0.242,
+   "C3": 0.894
+  }
+ ],
+ "variants": [
+  {
+   "name": "stage 1: ten published metrics",
+   "p": 10,
+   "evals4": "5.14, 2.47, 1.09, 0.55",
+   "n_retained": 2,
+   "families": [
+    "dispersion",
+    "success",
+    "dependence"
+   ],
+   "rho_f": "+0.89 †",
+   "spread": "+0.74 / +0.33",
+   "rho_u": "+0.84",
+   "h_sem": "+0.98",
+   "accuracy": "+0.97"
+  },
+  {
+   "name": "stage 2: ten published + ρ_F",
+   "p": 11,
+   "evals4": "5.23, 2.74, 1.61, 0.55",
+   "n_retained": 3,
+   "families": [
+    "dispersion",
+    "success",
+    "dependence"
+   ],
+   "rho_f": "+0.97",
+   "spread": "+0.72 / +0.31",
+   "rho_u": "+0.77",
+   "h_sem": "+0.98",
+   "accuracy": "+0.97"
+  },
+  {
+   "name": "eight published (without F_max, F_min)",
+   "p": 8,
+   "evals4": "4.74, 1.40, 0.83, 0.45",
+   "n_retained": 2,
+   "families": [
+    "dispersion",
+    "success",
+    "dependence"
+   ],
+   "rho_f": "+0.80 †",
+   "spread": "+0.56 / +0.62",
+   "rho_u": "+0.93",
+   "h_sem": "+0.98",
+   "accuracy": "+0.90"
+  },
+  {
+   "name": "eight published + ρ_F",
+   "p": 9,
+   "evals4": "4.85, 1.99, 0.95, 0.47",
+   "n_retained": 2,
+   "families": [
+    "dispersion",
+    "dependence",
+    "success"
+   ],
+   "rho_f": "+0.95",
+   "spread": "+0.67 / +0.51",
+   "rho_u": "+0.83",
+   "h_sem": "+0.99",
+   "accuracy": "+0.92"
+  },
+  {
+   "name": "stage 2 with spread on graded rates",
+   "p": 11,
+   "evals4": "5.21, 3.01, 1.60, 0.56",
+   "n_retained": 3,
+   "families": [
+    "dispersion",
+    "success",
+    "dependence"
+   ],
+   "rho_f": "+1.00",
+   "spread": "+0.77 / +0.46",
+   "rho_u": "+0.75",
+   "h_sem": "+0.98",
+   "accuracy": "+0.97"
+  },
+  {
+   "name": "stage 2 + AUFI, FI premium (accuracy aliases)",
+   "p": 13,
+   "evals4": "5.50, 3.88, 1.71, 0.69",
+   "n_retained": 3,
+   "families": [
+    "dispersion",
+    "success",
+    "dependence"
+   ],
+   "rho_f": "+0.96",
+   "spread": "+0.72 / +0.35",
+   "rho_u": "+0.76",
+   "h_sem": "+0.98",
+   "accuracy": "+0.96"
+  },
+  {
+   "name": "all fourteen earlier metrics (factor_audit.md, n = 136)",
+   "p": 14,
+   "evals4": "5.95, 2.87, 1.62, 0.94",
+   "n_retained": 3,
+   "families": [
+    "dispersion",
+    "success",
+    "dependence"
+   ],
+   "rho_f": "+0.90",
+   "spread": "+0.64 / +0.48",
+   "rho_u": "+0.82",
+   "h_sem": "+0.98",
+   "accuracy": "+0.93"
+  }
+ ]
+}
